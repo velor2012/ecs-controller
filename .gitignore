@@ -8,6 +8,7 @@ Thumbs.db
 /.idea
 /.vscode
 /vendor
+/.secret_encryption.key
 /.settings
 /.buildpath
 /.project
@@ -15,3 +16,20 @@ Thumbs.db
 package.json
 package-lock.json
 static/tailwindcss-browser.js
+
+# Local runtime data
+/data/
+data.reset-backup*/
+test_deploy/
+*.sqlite*
+monitor.db
+*.db
+*.bak
+*.bak.*
+.secret*
+.planning/
+test/
+test_data/
+test-results/
+graphify-out/
+docs/

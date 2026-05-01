@@ -1,4 +1,9 @@
 <?php
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) ? 1 : 0);
+ini_set('session.cookie_samesite', 'Lax');
+ini_set('session.use_strict_mode', 1);
+ini_set('session.use_only_cookies', 1);
 session_start();
 
 error_reporting(E_ALL & ~E_NOTICE & ~E_WARNING & ~E_DEPRECATED);
@@ -19,7 +24,10 @@ if ($action === 'check_init') {
     if ($initError) {
         echo json_encode(['initialized' => false, 'error' => $initError]);
     } else {
-        echo json_encode(['initialized' => $app->isInitialized()]);
+        echo json_encode([
+            'initialized' => $app->isInitialized(),
+            'brand' => $app->getPublicBrand()
+        ]);
     }
     exit;
 }
@@ -28,7 +36,7 @@ if ($action === 'setup') {
     header('Content-Type: application/json');
     if ($app->isInitialized()) {
         http_response_code(403);
-        echo json_encode(['success' => false, 'message' => 'System already initialized']);
+        echo json_encode(['success' => false, 'message' => '系统已完成初始化']);
         exit;
     }
     
@@ -38,7 +46,7 @@ if ($action === 'setup') {
             $_SESSION['is_admin'] = true;
             echo json_encode(['success' => true]);
         } else {
-            echo json_encode(['success' => false, 'message' => 'Setup failed']);
+            echo json_encode(['success' => false, 'message' => '初始化失败']);
         }
     } catch (Exception $e) {
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
@@ -66,13 +74,44 @@ if ($action === 'check_login') {
     exit;
 }
 
+if ($action === 'brand_logo') {
+    $dir = __DIR__ . '/data';
+    $files = array_merge(
+        glob($dir . '/brand-logo.png') ?: [],
+        glob($dir . '/brand-logo.jpg') ?: [],
+        glob($dir . '/brand-logo.webp') ?: []
+    );
+    $file = $files[0] ?? '';
+    if ($file === '' || !is_file($file)) {
+        http_response_code(404);
+        exit;
+    }
+
+    $mimeMap = [
+        'png' => 'image/png',
+        'jpg' => 'image/jpeg',
+        'webp' => 'image/webp'
+    ];
+    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+    header('Content-Type: ' . ($mimeMap[$ext] ?? 'application/octet-stream'));
+    header('Cache-Control: public, max-age=86400');
+    readfile($file);
+    exit;
+}
+
 if ($action === 'get_status') {
     header('Content-Type: application/json; charset=utf-8');
     $initError = $app->getInitError();
     if ($initError) {
         echo json_encode(['error' => $initError]);
     } else {
-        echo json_encode($app->getStatusForFrontend());
+        $isAdmin = isset($_SESSION['is_admin']) && $_SESSION['is_admin'] === true;
+        if (!$isAdmin) {
+            http_response_code(403);
+            echo json_encode(['error' => '请先登录后再操作']);
+        } else {
+            echo json_encode($app->getStatusForFrontend(true));
+        }
     }
     exit;
 }
@@ -81,7 +120,7 @@ if ($action === 'get_status') {
 
 if ($action !== 'view' && !isset($_SESSION['is_admin'])) {
     http_response_code(403);
-    echo json_encode(['error' => 'Unauthorized']);
+    echo json_encode(['error' => '请先登录后再操作']);
     exit;
 }
 
@@ -97,6 +136,12 @@ if ($action === 'save_config') {
     } else {
         echo json_encode(['success' => false, 'message' => '保存失败']);
     }
+    exit;
+}
+
+if ($action === 'upload_logo') {
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($app->uploadLogo($_FILES['logo'] ?? []));
     exit;
 }
 
@@ -126,12 +171,146 @@ if ($action === 'refresh_account') {
     $id = $data['id'] ?? 0;
     $result = $app->refreshAccount($id);
     if ($result === false) {
-        echo json_encode(['success' => false, 'message' => 'Refresh failed']);
+        echo json_encode(['success' => false, 'message' => '刷新失败']);
     } elseif (is_array($result)) {
         // 流量/状态刷新成功，但账单获取失败
         echo json_encode($result);
     } else {
         echo json_encode(['success' => true]);
+    }
+    exit;
+}
+
+if ($action === 'fetch_instances') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true);
+
+    try {
+        $instances = $app->fetchInstances($data['accessKeyId'] ?? '', $data['accessKeySecret'] ?? '', $data['regionId'] ?? '');
+        echo json_encode(['success' => true, 'data' => $instances]);
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'test_account') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true);
+
+    try {
+        $result = $app->testAccountCredentials($data['account'] ?? []);
+        echo json_encode($result);
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => $e->getMessage()
+        ]);
+    }
+    exit;
+}
+
+if ($action === 'sync_account_group') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true) ?: [];
+
+    try {
+        echo json_encode($app->syncAccountGroup($data['groupKey'] ?? ''));
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => $e->getMessage()
+        ]);
+    }
+    exit;
+}
+
+if ($action === 'restore_schedule_block') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true) ?: [];
+
+    try {
+        echo json_encode($app->restoreScheduleAfterTrafficBlock($data['groupKey'] ?? ''));
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'message' => $e->getMessage()
+        ]);
+    }
+    exit;
+}
+
+if ($action === 'preview_ecs_create') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true) ?: [];
+
+    try {
+        $result = $app->previewEcsCreate($data);
+        $_SESSION['ecs_create_previews'] = $_SESSION['ecs_create_previews'] ?? [];
+        $_SESSION['ecs_create_previews'][$result['previewId']] = [
+            'summary' => $result['summary'],
+            'created_at' => time()
+        ];
+        echo json_encode($result);
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'get_ecs_disk_options') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true) ?: [];
+
+    try {
+        echo json_encode($app->getEcsDiskOptions($data));
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'create_ecs') {
+    header('Content-Type: application/json; charset=utf-8');
+    $data = json_decode(file_get_contents('php://input'), true) ?: [];
+    $previewId = $data['previewId'] ?? '';
+    $confirmed = !empty($data['confirmed']);
+
+    try {
+        if (!$confirmed) {
+            throw new Exception('请先确认配置清单和费用提示');
+        }
+        $previewStore = $_SESSION['ecs_create_previews'][$previewId] ?? null;
+        if (!$previewStore || (time() - ($previewStore['created_at'] ?? 0)) > 900) {
+            throw new Exception('配置清单已过期，请重新预检');
+        }
+
+        $result = $app->createEcsFromPreview($previewId, $previewStore['summary']);
+        unset($_SESSION['ecs_create_previews'][$previewId]);
+        echo json_encode($result);
+    } catch (Exception $e) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'get_ecs_create_task') {
+    header('Content-Type: application/json; charset=utf-8');
+    $taskId = $_GET['taskId'] ?? '';
+    $task = $app->getEcsCreateTask($taskId);
+    if (!$task) {
+        http_response_code(404);
+        echo json_encode(['success' => false, 'message' => '任务不存在']);
+    } else {
+        unset($task['login_password']);
+        echo json_encode(['success' => true, 'data' => $task]);
     }
     exit;
 }
@@ -151,7 +330,7 @@ if ($action === 'clear_logs') {
     if ($app->clearSystemLogs($tab)) {
         echo json_encode(['success' => true]);
     } else {
-        echo json_encode(['success' => false, 'message' => 'Clear failed']);
+        echo json_encode(['success' => false, 'message' => '清空失败']);
     }
     exit;
 }
@@ -166,6 +345,87 @@ if ($action === 'get_history') {
 if ($action === 'logout') {
     session_destroy();
     echo json_encode(['success' => true]);
+    exit;
+}
+
+if ($action === 'get_all_instances') {
+    header('Content-Type: application/json; charset=utf-8');
+    $sync = ($_GET['sync'] ?? '0') === '1';
+    echo json_encode(['data' => $app->getAllManagedInstances($sync)]);
+    exit;
+}
+
+if ($action === 'control_instance') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $accountId = $data['accountId'] ?? 0;
+    $actionType = $data['action'] ?? '';
+    $shutdownMode = $data['shutdownMode'] ?? 'KeepCharging';
+
+    if (!in_array($actionType, ['start', 'stop'])) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'message' => '无效的操作类型']);
+        exit;
+    }
+
+    $result = $app->controlInstanceAction($accountId, $actionType, $shutdownMode);
+    echo json_encode(['success' => $result]);
+    exit;
+}
+
+if ($action === 'delete_instance') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $accountId = $data['accountId'] ?? 0;
+    $forceStop = $data['forceStop'] ?? false;
+
+    $result = $app->deleteInstanceAction($accountId, $forceStop);
+    echo json_encode(['success' => $result]);
+    exit;
+}
+
+if ($action === 'replace_instance_ip') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $accountId = $data['accountId'] ?? 0;
+
+    $result = $app->replaceInstanceIpAction($accountId);
+    echo json_encode($result);
+    exit;
+}
+
+if ($action === 'get_schedule_rules') {
+    echo json_encode($app->getScheduleRulesForFrontend());
+    exit;
+}
+
+if ($action === 'save_schedule_rules') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $result = $app->saveScheduleRulesFromFrontend($data);
+    echo json_encode($result);
+    exit;
+}
+
+if ($action === 'trigger_schedule_switch') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $result = $app->triggerScheduleSwitch($data['rule_index'] ?? 0);
+    echo json_encode($result);
+    exit;
+}
+
+if ($action === 'get_schedule_logs') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $limit = (int) ($data['limit'] ?? 50);
+    echo json_encode($app->getScheduleLogs($limit));
+    exit;
+}
+
+if ($action === 'get_schedule_dns_status') {
+    echo json_encode($app->getScheduleDnsStatus());
+    exit;
+}
+
+if ($action === 'set_schedule_auto_pause') {
+    $data = json_decode(file_get_contents('php://input'), true);
+    $paused = !empty($data['paused']);
+    echo json_encode($app->setScheduleAutoPause($paused));
     exit;
 }
 
