@@ -230,7 +230,7 @@ class DdnsScheduler
             return false;
         }
         try {
-            return $this->app->controlInstanceAction($account['id'], $action);
+            return $this->app->controlInstanceAction($account['id'], $action, 'KeepCharging', true, true);
         } catch (Exception $e) {
             $this->db->addLog('schedule', "DDNS调度 实例{$action}失败 [{$account['instance_id']}]: " . $e->getMessage());
             return false;

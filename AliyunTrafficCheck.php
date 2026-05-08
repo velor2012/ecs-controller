@@ -710,15 +710,21 @@ class AliyunTrafficCheck
                 }
             }
 
-            // 5. 保活逻辑 — 手动切换后 1 小时内仅保活当前目标实例
+            // 5. 保活逻辑
+            // DDNS调度激活且启用联动：调度中配置的实例仅保活当前目标，非调度实例正常保活
             if ($keepAlive && !$autoStartBlocked && !$requiresTrafficProtection) {
                 $scheduleState = $this->configManager->getScheduleState();
-                $manualSwitchAt = $scheduleState['manual_switch_at'] ?? 0;
-                $inManualCooldown = $manualSwitchAt > 0 && (time() - $manualSwitchAt) < 3600;
                 $scheduleTargetId = $scheduleState['current_instance_id'] ?? '';
-                if ($inManualCooldown && $account['instance_id'] !== $scheduleTargetId) {
-                    // 手动切换冷却期内，非目标实例不保活
-                } elseif ($status === 'Stopped') {
+                $linkingEnabled = $this->configManager->get('ddns_schedule_linking_enabled', '0') === '1';
+                $autoPaused = !empty($scheduleState['auto_schedule_paused']);
+                $scheduledInstanceIds = $this->getScheduledInstanceIds();
+                $isScheduled = in_array($account['instance_id'], $scheduledInstanceIds, true);
+                $shouldSkipKeepAlive = $isScheduled
+                    && $linkingEnabled
+                    && !$autoPaused
+                    && $account['instance_id'] !== $scheduleTargetId;
+
+                if (!$shouldSkipKeepAlive && $status === 'Stopped') {
                     if ($this->safeControlInstance($account, 'start')) {
                         $actions[] = "保活启动";
                         $this->db->addLog('info', "执行保活启动 [{$accountLabel}]");
@@ -1796,7 +1802,7 @@ class AliyunTrafficCheck
         return $metrics;
     }
 
-    public function controlInstanceAction($accountId, $action, $shutdownMode = 'KeepCharging', $waitForSync = true)
+    public function controlInstanceAction($accountId, $action, $shutdownMode = 'KeepCharging', $waitForSync = true, $suppressNotify = false)
     {
         if ($this->initError)
             return false;
@@ -1817,7 +1823,7 @@ class AliyunTrafficCheck
                     $this->configManager->syncAccountGroups(true);
                     $this->configManager->load();
                     $syncedAccount = $this->configManager->getAccountById($accountId);
-                    if (($syncedAccount['instance_status'] ?? '') === 'Running') {
+                    if (($syncedAccount['instance_status'] ?? '') === 'Running' && !$suppressNotify) {
                         $this->notifyStatusChangeIfNeeded($syncedAccount, $targetAccount['instance_status'] ?? 'Unknown', 'Running', '用户手动启动成功。');
                     }
                     $this->syncDdnsForAccounts($this->configManager->getAccounts(), '实例启动后');
@@ -2169,6 +2175,25 @@ class AliyunTrafficCheck
         }
 
         return $groupCounts;
+    }
+
+    private function getScheduledInstanceIds(): array
+    {
+        $rules = $this->configManager->getScheduleRules();
+        $ids = [];
+        foreach ($rules as $rule) {
+            $defaultId = $rule['default_instance_id'] ?? '';
+            if ($defaultId !== '') {
+                $ids[] = $defaultId;
+            }
+            foreach ($rule['entries'] ?? [] as $entry) {
+                $eid = $entry['instance_id'] ?? '';
+                if ($eid !== '') {
+                    $ids[] = $eid;
+                }
+            }
+        }
+        return array_unique($ids);
     }
 
     private function getDdnsGroupKey(array $account)
