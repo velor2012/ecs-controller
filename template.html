@@ -929,6 +929,33 @@
             margin-bottom: 0.75rem;
         }
 
+        .schedule-surface {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--panel);
+        }
+
+        .schedule-surface--soft {
+            background: color-mix(in srgb, var(--panel) 92%, var(--hover-bg, #f3f4f6));
+        }
+
+        .schedule-tab-button {
+            border: 1px solid transparent;
+        }
+
+        .schedule-tab-button.is-active {
+            border-color: color-mix(in srgb, var(--accent) 44%, var(--line));
+            background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+            color: var(--accent-strong);
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent), 0 6px 14px rgba(79, 70, 229, 0.12);
+        }
+
+        [data-theme="dark"] .schedule-tab-button.is-active {
+            background: color-mix(in srgb, var(--accent) 24%, var(--panel));
+            color: #c7d2fe;
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent), 0 8px 18px rgba(0, 0, 0, 0.22);
+        }
+
         .time-picker {
             position: relative;
             width: 100%;
@@ -2934,9 +2961,9 @@
                                         </span>
                                     </label>
 
-                                    <div class="flex gap-2 rounded-[14px] bg-slate-100 p-1">
-                                        <button @click="scheduleFormType = 'hour_slot'" class="flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'hour_slot' ? 'bg-[var(--panel)] text-[var(--text)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]'">按小时调度</button>
-                                        <button @click="scheduleFormType = 'day_cycle'" class="flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'day_cycle' ? 'bg-[var(--panel)] text-[var(--text)] shadow-sm' : 'text-[var(--muted)] hover:text-[var(--text)]'">按天轮换</button>
+                                    <div class="schedule-surface schedule-surface--soft flex gap-2 p-1">
+                                        <button @click="scheduleFormType = 'hour_slot'" class="schedule-tab-button flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'hour_slot' ? 'is-active' : 'text-[var(--muted)] hover:text-[var(--text)]'">按小时调度</button>
+                                        <button @click="scheduleFormType = 'day_cycle'" class="schedule-tab-button flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'day_cycle' ? 'is-active' : 'text-[var(--muted)] hover:text-[var(--text)]'">按天轮换</button>
                                     </div>
 
                                     <div>
@@ -2947,7 +2974,7 @@
                                         </div>
                                     </div>
 
-                                    <div v-if="scheduleDnsStatus" class="rounded-[14px] border border-blue-100 bg-blue-50/50 px-4 py-3 text-sm">
+                                    <div v-if="scheduleDnsStatus" class="schedule-surface px-4 py-3 text-sm">
                                         <div class="flex justify-between">
                                             <span class="text-[#6f7787]">当前解析:</span>
                                             <code class="font-mono text-xs">{{ scheduleDnsStatus.domain }}</code>
@@ -2964,10 +2991,11 @@
 
                                     <div>
                                         <label class="mb-1.5 block text-xs font-semibold text-[#6f7787]">默认实例 <span class="font-normal text-[#94a3b8]">（无规则匹配时的 fallback）</span></label>
-                                            <select v-model="scheduleFormDefaultId" class="glass-input">
-                                                <option value="">— 不指定 —</option>
-                                                <option v-for="inst in scheduleInstanceOptions" :key="inst.instanceId" :value="inst.instanceId">{{ inst.remark || inst.instanceName || inst.instanceId }} · {{ inst.regionId }}</option>
-                                            </select>
+                                        <app-select
+                                            v-model="scheduleFormDefaultId"
+                                            class="glass-select"
+                                            :options="scheduleDefaultInstanceOptions"
+                                        />
                                     </div>
 
                                     <div>
@@ -2975,27 +3003,32 @@
                                             <label class="text-xs font-semibold text-[#6f7787]">调度条目</label>
                                             <button @click="addScheduleEntry" class="text-xs text-blue-600 hover:text-blue-700 bg-transparent border border-dashed border-blue-300 rounded-[8px] px-3 py-1 cursor-pointer transition">+ 添加条目</button>
                                         </div>
-                                        <div v-if="!scheduleFormEntries.length" class="flex flex-col items-center gap-2 py-6 bg-slate-50 border border-dashed border-slate-300 rounded-[14px]">
+                                        <div v-if="!scheduleFormEntries.length" class="schedule-surface schedule-surface--soft flex flex-col items-center gap-2 border-dashed py-6">
                                             <p class="text-xs text-slate-400 m-0">暂无条目，点击"+ 添加条目"创建调度规则</p>
                                         </div>
-                                        <div v-for="(entry, ei) in scheduleFormEntries" :key="ei" class="border border-slate-200 rounded-[14px] p-3.5 mb-2 transition hover:shadow-sm">
+                                        <div v-for="(entry, ei) in scheduleFormEntries" :key="ei" class="schedule-surface p-3.5 mb-2 transition hover:shadow-sm">
                                             <div class="flex items-center justify-between mb-2">
                                                 <span class="text-xs font-semibold text-slate-400">#{{ ei + 1 }}</span>
                                                 <button @click="removeScheduleEntry(ei)" class="text-red-400 hover:text-red-600 bg-transparent border-none cursor-pointer text-xs" title="移除">✕</button>
                                             </div>
                                             <div class="space-y-2">
-                                                    <select v-model="entry.instance_id" class="glass-input">
-                                                        <option value="">选择实例</option>
-                                                        <option v-for="inst in scheduleInstanceOptions" :key="inst.instanceId" :value="inst.instanceId">{{ inst.remark || inst.instanceName || inst.instanceId }} · {{ inst.regionId }}</option>
-                                                    </select>
+                                                <app-select
+                                                    v-model="entry.instance_id"
+                                                    class="glass-select"
+                                                    :options="scheduleEntryInstanceOptions"
+                                                />
                                                 <div v-if="scheduleFormType === 'hour_slot'" class="flex items-center gap-2">
-                                                    <select v-model.number="entry.hour_start" class="glass-input flex-1" style="padding:6px 8px;font-size:13px">
-                                                        <option v-for="h in 24" :key="h-1" :value="h-1">{{ String(h-1).padStart(2,'0') }}:00</option>
-                                                    </select>
+                                                    <app-select
+                                                        v-model="entry.hour_start"
+                                                        class="glass-select flex-1"
+                                                        :options="scheduleHourStartOptions"
+                                                    />
                                                     <span class="text-slate-400">→</span>
-                                                    <select v-model.number="entry.hour_end" class="glass-input flex-1" style="padding:6px 8px;font-size:13px">
-                                                        <option v-for="h in 24" :key="h" :value="h">{{ h === 24 ? '24:00' : String(h).padStart(2,'0') + ':00' }}</option>
-                                                    </select>
+                                                    <app-select
+                                                        v-model="entry.hour_end"
+                                                        class="glass-select flex-1"
+                                                        :options="scheduleHourEndOptions"
+                                                    />
                                                 </div>
                                                 <div v-else class="flex items-center gap-2">
                                                     <span class="text-xs text-slate-500">连续</span>
@@ -3953,6 +3986,31 @@
                 const scheduleInstanceOptions = computed(() =>
                     (allInstances.value || []).filter(i => i && i.instanceId && i.instanceStatus !== 'Released')
                 );
+                const scheduleInstanceSelectOptions = computed(() =>
+                    scheduleInstanceOptions.value.map(inst => ({
+                        value: inst.instanceId,
+                        label: `${inst.remark || inst.instanceName || inst.instanceId} · ${inst.regionId}`
+                    }))
+                );
+                const scheduleDefaultInstanceOptions = computed(() => [
+                    { value: '', label: '不指定' },
+                    ...scheduleInstanceSelectOptions.value
+                ]);
+                const scheduleEntryInstanceOptions = computed(() => [
+                    { value: '', label: '选择实例' },
+                    ...scheduleInstanceSelectOptions.value
+                ]);
+                const scheduleHourStartOptions = Array.from({ length: 24 }, (_, hour) => ({
+                    value: hour,
+                    label: `${String(hour).padStart(2, '0')}:00`
+                }));
+                const scheduleHourEndOptions = Array.from({ length: 24 }, (_, index) => {
+                    const hour = index + 1;
+                    return {
+                        value: hour,
+                        label: hour === 24 ? '24:00' : `${String(hour).padStart(2, '0')}:00`
+                    };
+                });
                 const uploadingLogo = ref(false);
                 const fetchingAllInstances = ref(false);
                 const syncingInstances = ref(false);
@@ -5712,6 +5770,10 @@
                     scheduleDomainPrefix,
                     scheduleDnsStatus,
                     scheduleInstanceOptions,
+                    scheduleDefaultInstanceOptions,
+                    scheduleEntryInstanceOptions,
+                    scheduleHourStartOptions,
+                    scheduleHourEndOptions,
                     addScheduleEntry,
                     removeScheduleEntry,
                     fetchLogs,
