@@ -24,27 +24,12 @@ class DdnsService
             throw new Exception('请先填写 DDNS 根域名');
         }
 
-        $accountSlug = $this->slug($account['account_remark'] ?? $account['remark'] ?? '');
-        $instanceSlug = $this->slug($account['instance_name'] ?? '');
         $instanceId = trim((string) ($account['instance_id'] ?? ''));
-        $shortId = $this->slug($instanceId !== '' ? preg_replace('/^i-/', '', $instanceId) : '');
-
-        if ($accountSlug === '') {
-            $accountSlug = $instanceSlug ?: $shortId;
-        }
-        if ($accountSlug === '') {
-            throw new Exception('DDNS 记录名生成失败，请检查账号备注或实例名称');
+        $subdomain = $this->slug($instanceId);
+        if ($subdomain === '') {
+            throw new Exception('DDNS 记录名生成失败，请检查实例 ID');
         }
 
-        $subdomain = $accountSlug;
-        if ((int) $sameGroupInstanceCount > 1) {
-            $suffix = $instanceSlug ?: $shortId;
-            if ($suffix !== '' && $suffix !== $accountSlug) {
-                $subdomain .= '-' . $suffix;
-            }
-        }
-
-        $subdomain = trim($subdomain, '-');
         return $subdomain . '.' . $domain;
     }
 
