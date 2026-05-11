@@ -3027,22 +3027,28 @@
                                                     <p class="m-0 truncate text-sm font-semibold text-[var(--text)]">{{ inst.remark || inst.instanceName || inst.instanceId }}</p>
                                                     <p class="m-0 mt-1 text-xs text-[var(--muted)]">{{ inst.instanceId }} · {{ inst.regionId }}</p>
                                                 </div>
-                                                <button @click="addScheduleEntryForInstance(inst.instanceId)" class="text-xs text-blue-600 hover:text-blue-700 bg-transparent border border-dashed border-blue-300 rounded-[8px] px-3 py-1 cursor-pointer transition">+ 添加时间段</button>
+                                                <label class="switch-row flex items-center gap-2 text-xs text-[var(--muted)]">
+                                                    <span>参与调度</span>
+                                                    <span class="switch-control">
+                                                        <input type="checkbox" :checked="isScheduleInstanceEnabled(inst.instanceId)" @change="toggleScheduleInstance(inst.instanceId, $event.target.checked)">
+                                                        <span class="switch-slider"></span>
+                                                    </span>
+                                                </label>
                                             </div>
-                                            <div v-if="!getScheduleEntriesForInstance(inst.instanceId).length" class="schedule-surface schedule-surface--soft border-dashed px-3 py-3 text-center">
-                                                <p class="m-0 text-xs text-slate-400">未配置活动时间段</p>
+                                            <div v-if="!isScheduleInstanceEnabled(inst.instanceId)" class="schedule-surface schedule-surface--soft border-dashed px-3 py-3 text-center">
+                                                <p class="m-0 text-xs text-slate-400">未参与调度，启用后可选择唯一活动时间段。</p>
                                             </div>
-                                            <div v-for="entry in getScheduleEntriesForInstance(inst.instanceId)" :key="entry._key" class="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--input-bg)] p-2">
+                                            <div v-else class="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--input-bg)] p-2">
                                                 <template v-if="scheduleFormType === 'hour_slot'">
                                                     <span class="text-xs text-[var(--muted)]">活动时间</span>
                                                     <app-select
-                                                        v-model="entry.hour_start"
+                                                        v-model="getScheduleEntryForInstance(inst.instanceId).hour_start"
                                                         class="glass-select schedule-time-select"
                                                         :options="scheduleHourStartOptions"
                                                     />
                                                     <span class="text-slate-400">→</span>
                                                     <app-select
-                                                        v-model="entry.hour_end"
+                                                        v-model="getScheduleEntryForInstance(inst.instanceId).hour_end"
                                                         class="glass-select schedule-time-select"
                                                         :options="scheduleHourEndOptions"
                                                     />
@@ -3050,12 +3056,11 @@
                                                 <template v-else>
                                                     <span class="text-xs text-[var(--muted)]">活动日</span>
                                                     <span class="text-xs text-slate-500">第</span>
-                                                    <input v-model.number="entry.day_start" type="number" class="glass-input schedule-day-input" min="1" max="365">
+                                                    <input v-model.number="getScheduleEntryForInstance(inst.instanceId).day_start" type="number" class="glass-input schedule-day-input" min="1" max="365">
                                                     <span class="text-xs text-slate-500">天 → 第</span>
-                                                    <input v-model.number="entry.day_end" type="number" class="glass-input schedule-day-input" min="1" max="365">
+                                                    <input v-model.number="getScheduleEntryForInstance(inst.instanceId).day_end" type="number" class="glass-input schedule-day-input" min="1" max="365">
                                                     <span class="text-xs text-slate-500">天</span>
                                                 </template>
-                                                <button @click="removeScheduleEntry(entry._index)" class="ml-auto text-red-400 hover:text-red-600 bg-transparent border-none cursor-pointer text-xs" title="移除">✕</button>
                                             </div>
                                         </div>
                                     </div>
@@ -4018,10 +4023,6 @@
                     { value: '', label: '不指定' },
                     ...scheduleInstanceSelectOptions.value
                 ]);
-                const scheduleEntryInstanceOptions = computed(() => [
-                    { value: '', label: '选择实例' },
-                    ...scheduleInstanceSelectOptions.value
-                ]);
                 const scheduleHourStartOptions = Array.from({ length: 24 }, (_, hour) => ({
                     value: hour,
                     label: `${String(hour).padStart(2, '0')}:00`
@@ -4033,15 +4034,36 @@
                         label: hour === 24 ? '24:00' : `${String(hour).padStart(2, '0')}:00`
                     };
                 });
-                const getScheduleEntriesForInstance = (instanceId) => {
-                    const entries = [];
-                    scheduleFormEntries.value.forEach((entry, index) => {
-                        if (entry.instance_id !== instanceId) return;
-                        entry._index = index;
-                        entry._key = entry._key || `entry-${++scheduleEntrySeed}`;
-                        entries.push(entry);
-                    });
-                    return entries;
+                const createDefaultScheduleEntry = (instanceId) => {
+                    if (scheduleFormType.value === 'hour_slot') {
+                        const start = new Date().getHours();
+                        const end = start + 1;
+                        return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, hour_start: start, hour_end: end };
+                    }
+                    return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, day_start: 1, day_end: 1 };
+                };
+
+                const findScheduleEntryIndex = (instanceId) =>
+                    scheduleFormEntries.value.findIndex(entry => entry.instance_id === instanceId);
+
+                const isScheduleInstanceEnabled = (instanceId) => findScheduleEntryIndex(instanceId) >= 0;
+
+                const getScheduleEntryForInstance = (instanceId) => {
+                    let index = findScheduleEntryIndex(instanceId);
+                    if (index < 0) {
+                        scheduleFormEntries.value.push(createDefaultScheduleEntry(instanceId));
+                        index = scheduleFormEntries.value.length - 1;
+                    }
+                    return scheduleFormEntries.value[index];
+                };
+
+                const toggleScheduleInstance = (instanceId, enabled) => {
+                    const index = findScheduleEntryIndex(instanceId);
+                    if (enabled && index < 0) {
+                        scheduleFormEntries.value.push(createDefaultScheduleEntry(instanceId));
+                    } else if (!enabled && index >= 0) {
+                        scheduleFormEntries.value.splice(index, 1);
+                    }
                 };
                 const uploadingLogo = ref(false);
                 const fetchingAllInstances = ref(false);
@@ -5372,22 +5394,6 @@
                     } catch (e) { console.error(e); }
                 };
 
-                const addScheduleEntry = () => {
-                    scheduleFormEntries.value.push(
-                        scheduleFormType.value === 'hour_slot'
-                            ? { _key: `entry-${++scheduleEntrySeed}`, instance_id: '', hour_start: 0, hour_end: 8 }
-                            : { _key: `entry-${++scheduleEntrySeed}`, instance_id: '', day_start: 1, day_end: 1 }
-                    );
-                };
-
-                const addScheduleEntryForInstance = (instanceId) => {
-                    scheduleFormEntries.value.push(
-                        scheduleFormType.value === 'hour_slot'
-                            ? { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, hour_start: 0, hour_end: 8 }
-                            : { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, day_start: 1, day_end: 1 }
-                    );
-                };
-
                 const normalizeScheduleEntry = (entry) => {
                     const key = entry._key || `entry-${++scheduleEntrySeed}`;
                     if (scheduleFormType.value === 'day_cycle') {
@@ -5411,12 +5417,15 @@
                     return { ...entry, _key: key };
                 };
 
-                const removeScheduleEntry = (idx) => { scheduleFormEntries.value.splice(idx, 1); };
-
                 const saveScheduleForm = async () => {
                     const domain = (config.value.Ddns && config.value.Ddns.domain) || '';
                     if (!domain) { openAlert('请先在 DDNS 配置中填写根域名', 'error'); return; }
-                    const entries = scheduleFormEntries.value.filter(e => e.instance_id);
+                    const seenInstances = new Set();
+                    const entries = scheduleFormEntries.value.filter(e => {
+                        if (!e.instance_id || seenInstances.has(e.instance_id)) return false;
+                        seenInstances.add(e.instance_id);
+                        return true;
+                    });
                     if (!entries.length) { openAlert('请至少添加一个有效的调度条目', 'error'); return; }
                     savingSchedule.value = true;
                     try {
@@ -5839,13 +5848,11 @@
                     scheduleDnsStatus,
                     scheduleInstanceOptions,
                     scheduleDefaultInstanceOptions,
-                    scheduleEntryInstanceOptions,
                     scheduleHourStartOptions,
                     scheduleHourEndOptions,
-                    getScheduleEntriesForInstance,
-                    addScheduleEntry,
-                    addScheduleEntryForInstance,
-                    removeScheduleEntry,
+                    getScheduleEntryForInstance,
+                    isScheduleInstanceEnabled,
+                    toggleScheduleInstance,
                     fetchLogs,
                     clearLogs
                 };
