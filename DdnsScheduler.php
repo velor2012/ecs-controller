@@ -118,12 +118,13 @@ class DdnsScheduler
         }
         $defaultInstanceId = $rule['default_instance_id'] ?? '';
 
-        $targetInstanceId = null;
+        $activeInstanceIds = [];
         if ($scheduleType === 'hour_slot') {
-            $targetInstanceId = $this->resolveHourSlotTarget($entries);
+            $activeInstanceIds = $this->resolveHourSlotTargets($entries);
         } elseif ($scheduleType === 'day_cycle') {
-            $targetInstanceId = $this->resolveDayCycleTarget($entries);
+            $activeInstanceIds = $this->resolveDayCycleTargets($entries);
         }
+        $targetInstanceId = $activeInstanceIds[0] ?? null;
 
         $state = $this->configManager->getScheduleState();
         $currentTarget = $state['current_instance_id'] ?? '';
@@ -131,62 +132,80 @@ class DdnsScheduler
         if ($targetInstanceId === null || $targetInstanceId === '') {
             if ($useDefaultFallback) {
                 $targetInstanceId = $defaultInstanceId;
+                $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
             } else {
                 $excludeTarget = $this->oldTargetForLog ?? $currentTarget;
                 $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget, $defaultInstanceId);
+                $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
             }
         } elseif (!$useDefaultFallback && $targetInstanceId === $this->oldTargetForLog) {
             $excludeTarget = $this->oldTargetForLog;
             $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget, $defaultInstanceId);
+            $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
         }
 
         if ($targetInstanceId === null || $targetInstanceId === '') {
             return false;
         }
 
-        if ($targetInstanceId === $currentTarget) {
+        $activeInstanceIds = $this->normalizeInstanceIds($activeInstanceIds);
+
+        if ($targetInstanceId === $currentTarget && !$this->isLinkingEnabled()) {
             return false;
         }
 
         $accounts = $this->configManager->getAccounts();
         $targetIp = '';
         $targetAccount = null;
-        $currentAccount = null;
-        $oldTargetId = $this->oldTargetForLog ?? $currentTarget;
+        $scheduledInstanceIds = $this->getRuleInstanceIds($rule);
+        $accountsByInstanceId = [];
         foreach ($accounts as $account) {
             $aid = $account['instance_id'] ?? '';
+            if ($aid === '') {
+                continue;
+            }
+            $accountsByInstanceId[$aid] = $account;
             if ($aid === $targetInstanceId) {
                 $targetIp = $this->getEffectivePublicIp($account);
                 $targetAccount = $account;
             }
-            if ($oldTargetId !== '' && $aid === $oldTargetId) {
-                $currentAccount = $account;
+        }
+
+        $linkingEnabled = $this->isLinkingEnabled();
+
+        if ($linkingEnabled) {
+            foreach ($activeInstanceIds as $activeId) {
+                $activeAccount = $accountsByInstanceId[$activeId] ?? null;
+                if ($activeAccount === null) {
+                    continue;
+                }
+                $activeStatus = $activeAccount['instance_status'] ?? '';
+                if ($activeStatus === 'Stopped') {
+                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机: {$activeId}");
+                    $started = $this->controlInstance($activeAccount, 'start');
+                    if (!$started) {
+                        $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机失败 {$activeId}，切换中止");
+                        return false;
+                    }
+                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机成功: {$activeId}");
+                    if ($activeId === $targetInstanceId) {
+                        $targetIp = $this->refreshInstanceIp($activeAccount);
+                    }
+                }
+            }
+
+            if ($targetAccount !== null && empty($targetIp)) {
+                $targetIp = $this->refreshInstanceIp($targetAccount);
+                if (empty($targetIp)) {
+                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 开机后获取IP失败 {$targetInstanceId}，切换中止");
+                    return false;
+                }
             }
         }
 
         if (empty($targetIp) || !filter_var($targetIp, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
             $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 目标实例 {$targetInstanceId} 无有效公网IPv4，跳过");
             return false;
-        }
-
-        $linkingEnabled = $this->isLinkingEnabled();
-
-        if ($linkingEnabled && $targetAccount !== null) {
-            $targetStatus = $targetAccount['instance_status'] ?? '';
-            if ($targetStatus === 'Stopped') {
-                $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机: {$targetInstanceId}");
-                $started = $this->controlInstance($targetAccount, 'start');
-                if (!$started) {
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机失败 {$targetInstanceId}，切换中止");
-                    return false;
-                }
-                $targetIp = $this->refreshInstanceIp($targetAccount);
-                if (empty($targetIp)) {
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 开机后获取IP失败 {$targetInstanceId}，切换中止");
-                    return false;
-                }
-                $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机成功: {$targetInstanceId}");
-            }
         }
 
         $recordName = $this->buildSharedRecordName($ruleDomain);
@@ -206,15 +225,24 @@ class DdnsScheduler
             if ($scheduleType === 'day_cycle' && $this->configManager->getScheduleActivatedAt() === null) {
                 $this->configManager->saveScheduleActivatedAt(time());
             }
-            $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] from {$oldTarget} → {$targetInstanceId} ({$targetIp}) (success)");
+            $activeText = implode(',', $activeInstanceIds);
+            $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] from {$oldTarget} → {$targetInstanceId} ({$targetIp}) active=[{$activeText}] (success)");
 
-            if ($linkingEnabled && $currentAccount !== null) {
-                $currentStatus = $currentAccount['instance_status'] ?? '';
-                if ($currentStatus === 'Running' || $currentStatus === 'Starting') {
-                    $oldInstanceId = $currentAccount['instance_id'] ?? '';
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动关机: {$oldInstanceId}");
-                    $stopped = $this->controlInstance($currentAccount, 'stop');
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动关机" . ($stopped ? '成功' : '失败') . ": {$oldInstanceId}");
+            if ($linkingEnabled) {
+                foreach ($scheduledInstanceIds as $scheduledId) {
+                    if (in_array($scheduledId, $activeInstanceIds, true)) {
+                        continue;
+                    }
+                    $inactiveAccount = $accountsByInstanceId[$scheduledId] ?? null;
+                    if ($inactiveAccount === null) {
+                        continue;
+                    }
+                    $inactiveStatus = $inactiveAccount['instance_status'] ?? '';
+                    if ($inactiveStatus === 'Running' || $inactiveStatus === 'Starting') {
+                        $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动关机: {$scheduledId}");
+                        $stopped = $this->controlInstance($inactiveAccount, 'stop');
+                        $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动关机" . ($stopped ? '成功' : '失败') . ": {$scheduledId}");
+                    }
                 }
             }
             return true;
@@ -253,9 +281,10 @@ class DdnsScheduler
         return $this->getEffectivePublicIp($account);
     }
 
-    private function resolveHourSlotTarget(array $entries): ?string
+    private function resolveHourSlotTargets(array $entries): array
     {
         $currentHour = (int) date('G');
+        $targets = [];
 
         foreach ($entries as $entry) {
             if (!isset($entry['hour_start'], $entry['hour_end'])) {
@@ -266,22 +295,22 @@ class DdnsScheduler
 
             if ($start <= $end) {
                 if ($currentHour >= $start && $currentHour < $end) {
-                    return $entry['instance_id'];
+                    $targets[] = $entry['instance_id'] ?? '';
                 }
             } else {
                 if ($currentHour >= $start || $currentHour < $end) {
-                    return $entry['instance_id'];
+                    $targets[] = $entry['instance_id'] ?? '';
                 }
             }
         }
 
-        return null;
+        return $this->normalizeInstanceIds($targets);
     }
 
-    private function resolveDayCycleTarget(array $entries): ?string
+    private function resolveDayCycleTargets(array $entries): array
     {
         if (empty($entries)) {
-            return null;
+            return [];
         }
 
         $activatedAt = $this->configManager->getScheduleActivatedAt();
@@ -293,6 +322,27 @@ class DdnsScheduler
             $elapsedDays = (int) date('j') - 1;
         }
 
+        if ($this->usesExplicitDayRanges($entries)) {
+            $cycleLength = 0;
+            foreach ($entries as $entry) {
+                $cycleLength = max($cycleLength, (int) ($entry['day_end'] ?? 0));
+            }
+            if ($cycleLength <= 0) {
+                return [];
+            }
+
+            $currentDay = ($elapsedDays % $cycleLength) + 1;
+            $targets = [];
+            foreach ($entries as $entry) {
+                $start = max(1, (int) ($entry['day_start'] ?? 1));
+                $end = max($start, (int) ($entry['day_end'] ?? $start));
+                if ($currentDay >= $start && $currentDay <= $end) {
+                    $targets[] = $entry['instance_id'] ?? '';
+                }
+            }
+            return $this->normalizeInstanceIds($targets);
+        }
+
         $cycle = [];
         foreach ($entries as $entry) {
             $days = max(1, (int) ($entry['days'] ?? 1));
@@ -302,11 +352,46 @@ class DdnsScheduler
         }
 
         if (empty($cycle)) {
-            return null;
+            return [];
         }
 
         $position = $elapsedDays % count($cycle);
-        return $cycle[$position < 0 ? 0 : $position];
+        return $this->normalizeInstanceIds([$cycle[$position < 0 ? 0 : $position]]);
+    }
+
+    private function usesExplicitDayRanges(array $entries): bool
+    {
+        foreach ($entries as $entry) {
+            if (isset($entry['day_start']) || isset($entry['day_end'])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function normalizeInstanceIds(array $ids): array
+    {
+        $normalized = [];
+        foreach ($ids as $id) {
+            $id = trim((string) $id);
+            if ($id !== '' && !in_array($id, $normalized, true)) {
+                $normalized[] = $id;
+            }
+        }
+        return $normalized;
+    }
+
+    private function getRuleInstanceIds(array $rule): array
+    {
+        $ids = [];
+        $defaultId = $rule['default_instance_id'] ?? '';
+        if ($defaultId !== '') {
+            $ids[] = $defaultId;
+        }
+        foreach ($rule['entries'] ?? [] as $entry) {
+            $ids[] = $entry['instance_id'] ?? '';
+        }
+        return $this->normalizeInstanceIds($ids);
     }
 
     /**
