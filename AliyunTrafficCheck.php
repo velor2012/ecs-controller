@@ -2355,12 +2355,114 @@ class AliyunTrafficCheck
             return ['success' => false, 'error' => $this->initError];
         }
         try {
-            $rules = $data['rules'] ?? [];
+            $rules = $this->normalizeScheduleRulesForSave($data['rules'] ?? []);
             $this->configManager->saveScheduleRules($rules);
             return ['success' => true];
         } catch (Exception $e) {
             return ['success' => false, 'message' => $e->getMessage()];
         }
+    }
+
+    private function normalizeScheduleRulesForSave($rules): array
+    {
+        if (!is_array($rules)) {
+            throw new Exception('调度规则格式无效');
+        }
+
+        $validInstanceIds = $this->getSchedulableInstanceIdsForSave();
+        $normalizedRules = [];
+        foreach ($rules as $rule) {
+            if (!is_array($rule)) {
+                continue;
+            }
+
+            $scheduleType = ($rule['schedule_type'] ?? 'hour_slot') === 'day_cycle' ? 'day_cycle' : 'hour_slot';
+            $entries = [];
+            $seen = [];
+            foreach (($rule['entries'] ?? []) as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+                $instanceId = trim((string) ($entry['instance_id'] ?? ''));
+                if ($instanceId === '' || isset($seen[$instanceId]) || !isset($validInstanceIds[$instanceId])) {
+                    continue;
+                }
+                $seen[$instanceId] = true;
+
+                if ($scheduleType === 'hour_slot') {
+                    $start = $this->normalizeScheduleHour($entry['hour_start'] ?? 0);
+                    $end = $this->normalizeScheduleHour($entry['hour_end'] ?? 0);
+                    if ($start === $end) {
+                        throw new Exception('小时调度的开始时间不能等于结束时间');
+                    }
+                    $entries[] = [
+                        'instance_id' => $instanceId,
+                        'hour_start' => $start,
+                        'hour_end' => $end
+                    ];
+                } else {
+                    $entries[] = [
+                        'instance_id' => $instanceId,
+                        'days' => $this->normalizeScheduleDays($entry)
+                    ];
+                }
+            }
+
+            if (empty($entries)) {
+                throw new Exception('请至少添加一个有效的调度条目');
+            }
+
+            $defaultInstanceId = trim((string) ($rule['default_instance_id'] ?? ''));
+            if ($defaultInstanceId !== '' && !isset($validInstanceIds[$defaultInstanceId])) {
+                $defaultInstanceId = '';
+            }
+
+            $normalizedRules[] = [
+                'enabled' => !empty($rule['enabled']),
+                'domain' => trim((string) ($rule['domain'] ?? '')),
+                'domain_prefix' => trim((string) ($rule['domain_prefix'] ?? '')),
+                'default_instance_id' => $defaultInstanceId,
+                'schedule_type' => $scheduleType,
+                'entries' => $entries
+            ];
+        }
+
+        if (empty($normalizedRules)) {
+            throw new Exception('请至少添加一个有效的调度条目');
+        }
+
+        return $normalizedRules;
+    }
+
+    private function getSchedulableInstanceIdsForSave(): array
+    {
+        $ids = [];
+        foreach ($this->configManager->getAccounts() as $account) {
+            $instanceId = trim((string) ($account['instance_id'] ?? ''));
+            if ($instanceId === '' || ($account['instance_status'] ?? '') === 'Released') {
+                continue;
+            }
+            $ids[$instanceId] = true;
+        }
+        return $ids;
+    }
+
+    private function normalizeScheduleHour($value): int
+    {
+        $hour = (int) $value;
+        return max(0, min(23, $hour));
+    }
+
+    private function normalizeScheduleDays(array $entry): int
+    {
+        if (isset($entry['days'])) {
+            $days = (int) $entry['days'];
+        } else {
+            $start = max(1, (int) ($entry['day_start'] ?? 1));
+            $end = max($start, (int) ($entry['day_end'] ?? $start));
+            $days = $end - $start + 1;
+        }
+        return max(1, min(365, $days));
     }
 
     public function triggerScheduleSwitch(int $ruleIndex): array

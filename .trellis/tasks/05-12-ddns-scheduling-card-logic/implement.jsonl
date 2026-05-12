@@ -1,0 +1,7 @@
+{"path":".trellis/tasks/05-12-ddns-scheduling-card-logic/prd.md","type":"requirements","reason":"Defines user-facing behavior, acceptance criteria, and scope for DDNS scheduling card and logic changes."}
+{"path":".trellis/tasks/05-12-ddns-scheduling-card-logic/design.md","type":"design","reason":"Defines data contracts, UI boundaries, compatibility expectations, and validation decisions."}
+{"path":".trellis/tasks/05-12-ddns-scheduling-card-logic/implement.md","type":"plan","reason":"Defines ordered implementation steps and validation commands."}
+{"path":"template.html","type":"source","reason":"Contains the Vue DDNS scheduling card markup, state, computed options, and save/load methods to update."}
+{"path":"DdnsScheduler.php","type":"source","reason":"Contains hour-slot and day-cycle schedule resolution logic to align with the new rules."}
+{"path":"AliyunTrafficCheck.php","type":"source","reason":"Contains DDNS schedule API methods for loading, saving, triggering, and status checks."}
+{"path":"ConfigManager.php","type":"source","reason":"Stores and retrieves DDNS schedule rules and state from settings."}

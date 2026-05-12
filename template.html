@@ -3014,55 +3014,62 @@
                                     </div>
 
                                     <div>
-                                        <div class="mb-1.5 flex items-center justify-between">
-                                            <label class="text-xs font-semibold text-[#6f7787]">各实例活动时间段</label>
-                                            <span class="text-xs text-[var(--muted)]">同一时间段可配置多台实例</span>
+                                        <div class="mb-1.5 flex items-center justify-between gap-3">
+                                            <label class="text-xs font-semibold text-[#6f7787]">已添加调度实例</label>
+                                            <span class="text-xs text-[var(--muted)]">按天轮换会按添加顺序执行</span>
                                         </div>
                                         <div v-if="!scheduleInstanceOptions.length" class="schedule-surface schedule-surface--soft flex flex-col items-center gap-2 border-dashed py-6">
                                             <p class="text-xs text-slate-400 m-0">暂无可调度实例，请先同步实例。</p>
                                         </div>
-                                        <div v-for="inst in scheduleInstanceOptions" :key="inst.instanceId" class="schedule-surface p-3.5 mb-3 transition hover:shadow-sm">
-                                            <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                                <div class="min-w-0">
-                                                    <p class="m-0 truncate text-sm font-semibold text-[var(--text)]">{{ inst.remark || inst.instanceName || inst.instanceId }}</p>
-                                                    <p class="m-0 mt-1 text-xs text-[var(--muted)]">{{ inst.instanceId }} · {{ inst.regionId }}</p>
-                                                </div>
-                                                <label class="switch-row flex items-center gap-2 text-xs text-[var(--muted)]">
-                                                    <span>参与调度</span>
-                                                    <span class="switch-control">
-                                                        <input type="checkbox" :checked="isScheduleInstanceEnabled(inst.instanceId)" @change="toggleScheduleInstance(inst.instanceId, $event.target.checked)">
-                                                        <span class="switch-slider"></span>
-                                                    </span>
-                                                </label>
-                                            </div>
-                                            <div v-if="!isScheduleInstanceEnabled(inst.instanceId)" class="schedule-surface schedule-surface--soft border-dashed px-3 py-3 text-center">
-                                                <p class="m-0 text-xs text-slate-400">未参与调度，启用后可选择唯一活动时间段。</p>
-                                            </div>
-                                            <div v-else class="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--input-bg)] p-2">
-                                                <template v-if="scheduleFormType === 'hour_slot'">
-                                                    <span class="text-xs text-[var(--muted)]">活动时间</span>
+                                        <template v-else>
+                                            <div class="schedule-surface schedule-surface--soft mb-3 flex flex-wrap items-center gap-2 p-3">
+                                                <div class="min-w-[220px] flex-1">
                                                     <app-select
-                                                        v-model="getScheduleEntryForInstance(inst.instanceId).hour_start"
+                                                        v-model="pendingScheduleInstanceId"
+                                                        class="glass-select"
+                                                        :options="scheduleAvailableInstanceOptions"
+                                                        :disabled="!scheduleAvailableInstanceOptions.length"
+                                                        :placeholder="scheduleAvailableInstanceOptions.length ? '选择要添加的实例' : '所有实例已添加'"
+                                                    ></app-select>
+                                                </div>
+                                                <button @click="addScheduleInstance" class="solid-button text-sm" :disabled="!pendingScheduleInstanceId">添加实例</button>
+                                            </div>
+
+                                            <div v-if="!scheduleFormEntries.length" class="schedule-surface schedule-surface--soft flex flex-col items-center gap-2 border-dashed py-6">
+                                                <p class="text-xs text-slate-400 m-0">尚未添加调度实例，请先通过下拉框选择并添加。</p>
+                                            </div>
+                                            <div v-for="(entry, index) in scheduleFormEntries" :key="entry._key" class="schedule-surface p-3.5 mb-3 transition hover:shadow-sm">
+                                                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                                    <div class="min-w-0">
+                                                        <p class="m-0 truncate text-sm font-semibold text-[var(--text)]">{{ index + 1 }}. {{ getScheduleInstanceLabel(entry.instance_id) }}</p>
+                                                        <p class="m-0 mt-1 text-xs text-[var(--muted)]">{{ entry.instance_id }}</p>
+                                                    </div>
+                                                    <button @click="removeScheduleInstance(index)" class="ghost-button compact-button text-xs">移除</button>
+                                                </div>
+                                                <div class="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--input-bg)] p-2">
+                                                    <template v-if="scheduleFormType === 'hour_slot'">
+                                                        <span class="text-xs text-[var(--muted)]">活动时间</span>
+                                                        <app-select
+                                                        v-model="entry.hour_start"
                                                         class="glass-select schedule-time-select"
                                                         :options="scheduleHourStartOptions"
-                                                    />
+                                                    ></app-select>
                                                     <span class="text-slate-400">→</span>
                                                     <app-select
-                                                        v-model="getScheduleEntryForInstance(inst.instanceId).hour_end"
+                                                        v-model="entry.hour_end"
                                                         class="glass-select schedule-time-select"
                                                         :options="scheduleHourEndOptions"
-                                                    />
-                                                </template>
-                                                <template v-else>
-                                                    <span class="text-xs text-[var(--muted)]">活动日</span>
-                                                    <span class="text-xs text-slate-500">第</span>
-                                                    <input v-model.number="getScheduleEntryForInstance(inst.instanceId).day_start" type="number" class="glass-input schedule-day-input" min="1" max="365">
-                                                    <span class="text-xs text-slate-500">天 → 第</span>
-                                                    <input v-model.number="getScheduleEntryForInstance(inst.instanceId).day_end" type="number" class="glass-input schedule-day-input" min="1" max="365">
-                                                    <span class="text-xs text-slate-500">天</span>
-                                                </template>
+                                                    ></app-select>
+                                                        <span v-if="Number(entry.hour_end) < Number(entry.hour_start)" class="text-xs text-amber-500">跨日</span>
+                                                    </template>
+                                                    <template v-else>
+                                                        <span class="text-xs text-[var(--muted)]">活动</span>
+                                                        <input v-model.number="entry.days" type="number" class="glass-input schedule-day-input" min="1" max="365">
+                                                        <span class="text-xs text-slate-500">天</span>
+                                                    </template>
+                                                </div>
                                             </div>
-                                        </div>
+                                        </template>
                                     </div>
 
                                     <div class="flex flex-wrap gap-2">
@@ -4008,6 +4015,7 @@
                 const scheduleFormType = ref('hour_slot');
                 const scheduleFormDefaultId = ref('');
                 const scheduleFormEntries = ref([]);
+                const pendingScheduleInstanceId = ref('');
                 const scheduleDomainPrefix = ref('');
                 const scheduleDnsStatus = ref(null);
                 const scheduleInstanceOptions = computed(() =>
@@ -4023,24 +4031,24 @@
                     { value: '', label: '不指定' },
                     ...scheduleInstanceSelectOptions.value
                 ]);
+                const scheduleAddedInstanceIds = computed(() => new Set(
+                    scheduleFormEntries.value.map(entry => entry.instance_id).filter(Boolean)
+                ));
+                const scheduleAvailableInstanceOptions = computed(() =>
+                    scheduleInstanceSelectOptions.value.filter(option => !scheduleAddedInstanceIds.value.has(option.value))
+                );
                 const scheduleHourStartOptions = Array.from({ length: 24 }, (_, hour) => ({
                     value: hour,
                     label: `${String(hour).padStart(2, '0')}:00`
                 }));
-                const scheduleHourEndOptions = Array.from({ length: 24 }, (_, index) => {
-                    const hour = index + 1;
-                    return {
-                        value: hour,
-                        label: hour === 24 ? '24:00' : `${String(hour).padStart(2, '0')}:00`
-                    };
-                });
+                const scheduleHourEndOptions = scheduleHourStartOptions;
                 const createDefaultScheduleEntry = (instanceId) => {
                     if (scheduleFormType.value === 'hour_slot') {
                         const start = new Date().getHours();
-                        const end = start + 1;
+                        const end = (start + 1) % 24;
                         return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, hour_start: start, hour_end: end };
                     }
-                    return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, day_start: 1, day_end: 1 };
+                    return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, days: 1 };
                 };
 
                 const findScheduleEntryIndex = (instanceId) =>
@@ -4048,20 +4056,21 @@
 
                 const isScheduleInstanceEnabled = (instanceId) => findScheduleEntryIndex(instanceId) >= 0;
 
-                const getScheduleEntryForInstance = (instanceId) => {
-                    let index = findScheduleEntryIndex(instanceId);
-                    if (index < 0) {
-                        scheduleFormEntries.value.push(createDefaultScheduleEntry(instanceId));
-                        index = scheduleFormEntries.value.length - 1;
-                    }
-                    return scheduleFormEntries.value[index];
+                const getScheduleInstanceLabel = (instanceId) => {
+                    const inst = scheduleInstanceOptions.value.find(item => item.instanceId === instanceId);
+                    if (!inst) return instanceId || '未知实例';
+                    return `${inst.remark || inst.instanceName || inst.instanceId} · ${inst.regionId}`;
                 };
 
-                const toggleScheduleInstance = (instanceId, enabled) => {
-                    const index = findScheduleEntryIndex(instanceId);
-                    if (enabled && index < 0) {
-                        scheduleFormEntries.value.push(createDefaultScheduleEntry(instanceId));
-                    } else if (!enabled && index >= 0) {
+                const addScheduleInstance = () => {
+                    const instanceId = pendingScheduleInstanceId.value;
+                    if (!instanceId || findScheduleEntryIndex(instanceId) >= 0) return;
+                    scheduleFormEntries.value.push(createDefaultScheduleEntry(instanceId));
+                    pendingScheduleInstanceId.value = '';
+                };
+
+                const removeScheduleInstance = (index) => {
+                    if (index >= 0) {
                         scheduleFormEntries.value.splice(index, 1);
                     }
                 };
@@ -5386,10 +5395,11 @@
                              if (rules.length > 0) {
                                 const rule = rules[0];
                                 scheduleFormType.value = rule.schedule_type || 'hour_slot';
-                                scheduleFormDefaultId.value = rule.default_instance_id || '';
-                                scheduleFormEntries.value = (rule.entries || []).map(normalizeScheduleEntry);
-                                scheduleDomainPrefix.value = rule.domain_prefix || '';
-                            }
+                                 scheduleFormDefaultId.value = rule.default_instance_id || '';
+                                 scheduleFormEntries.value = (rule.entries || []).map(normalizeScheduleEntry);
+                                 scheduleDomainPrefix.value = rule.domain_prefix || '';
+                                 pendingScheduleInstanceId.value = '';
+                             }
                         }
                     } catch (e) { console.error(e); }
                 };
@@ -5397,24 +5407,31 @@
                 const normalizeScheduleEntry = (entry) => {
                     const key = entry._key || `entry-${++scheduleEntrySeed}`;
                     if (scheduleFormType.value === 'day_cycle') {
-                        const dayStart = Number(entry.day_start || 0);
-                        const dayEnd = Number(entry.day_end || 0);
-                        if (dayStart > 0 || dayEnd > 0) {
-                            return {
-                                ...entry,
-                                _key: key,
-                                day_start: dayStart || 1,
-                                day_end: dayEnd || dayStart || 1
-                            };
-                        }
+                        const explicitDays = Number(entry.days || 0);
+                        const dayStart = Number(entry.day_start || 1);
+                        const dayEnd = Number(entry.day_end || dayStart);
+                        const rangeDays = Math.max(1, dayEnd - dayStart + 1);
                         return {
                             ...entry,
                             _key: key,
-                            day_start: 1,
-                            day_end: Math.max(1, Number(entry.days || 1))
+                            days: Math.max(1, explicitDays || rangeDays)
                         };
                     }
-                    return { ...entry, _key: key };
+                    const start = normalizeHour(entry.hour_start, 0);
+                    const end = normalizeHour(entry.hour_end, (start + 1) % 24);
+                    return { ...entry, _key: key, hour_start: start, hour_end: end };
+                };
+
+                const normalizeHour = (value, fallback = 0) => {
+                    const hour = Number(value);
+                    if (!Number.isFinite(hour)) return fallback;
+                    return Math.max(0, Math.min(23, Math.floor(hour)));
+                };
+
+                const normalizeScheduleDays = (value) => {
+                    const days = Number(value);
+                    if (!Number.isFinite(days)) return 1;
+                    return Math.max(1, Math.min(365, Math.floor(days)));
                 };
 
                 const saveScheduleForm = async () => {
@@ -5427,6 +5444,10 @@
                         return true;
                     });
                     if (!entries.length) { openAlert('请至少添加一个有效的调度条目', 'error'); return; }
+                    if (scheduleFormType.value === 'hour_slot') {
+                        const invalidEqual = entries.some(e => normalizeHour(e.hour_start) === normalizeHour(e.hour_end));
+                        if (invalidEqual) { openAlert('小时调度的开始时间不能等于结束时间', 'error'); return; }
+                    }
                     savingSchedule.value = true;
                     try {
                         const rule = {
@@ -5434,15 +5455,13 @@
                             domain_prefix: scheduleDomainPrefix.value || '',
                             default_instance_id: scheduleFormDefaultId.value || '',
                             schedule_type: scheduleFormType.value,
-                            entries: entries.map(e => {
-                                if (scheduleFormType.value === 'hour_slot') {
-                                    return { instance_id: e.instance_id, hour_start: e.hour_start, hour_end: e.hour_end };
-                                }
-                                const dayStart = Math.max(1, Number(e.day_start || 1));
-                                const dayEnd = Math.max(dayStart, Number(e.day_end || dayStart));
-                                return { instance_id: e.instance_id, day_start: dayStart, day_end: dayEnd };
-                            })
-                        };
+                             entries: entries.map(e => {
+                                 if (scheduleFormType.value === 'hour_slot') {
+                                     return { instance_id: e.instance_id, hour_start: normalizeHour(e.hour_start), hour_end: normalizeHour(e.hour_end) };
+                                 }
+                                 return { instance_id: e.instance_id, days: normalizeScheduleDays(e.days) };
+                             })
+                         };
                         const res = await fetch('index.php?action=save_schedule_rules', {
                             method: 'POST', body: JSON.stringify({ rules: [rule] })
                         });
@@ -5844,15 +5863,18 @@
                     scheduleFormType,
                     scheduleFormDefaultId,
                     scheduleFormEntries,
+                    pendingScheduleInstanceId,
                     scheduleDomainPrefix,
                     scheduleDnsStatus,
                     scheduleInstanceOptions,
+                    scheduleAvailableInstanceOptions,
                     scheduleDefaultInstanceOptions,
                     scheduleHourStartOptions,
                     scheduleHourEndOptions,
-                    getScheduleEntryForInstance,
+                    getScheduleInstanceLabel,
                     isScheduleInstanceEnabled,
-                    toggleScheduleInstance,
+                    addScheduleInstance,
+                    removeScheduleInstance,
                     fetchLogs,
                     clearLogs
                 };

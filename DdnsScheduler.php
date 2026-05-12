@@ -290,8 +290,11 @@ class DdnsScheduler
             if (!isset($entry['hour_start'], $entry['hour_end'])) {
                 continue;
             }
-            $start = (int) $entry['hour_start'];
-            $end = (int) $entry['hour_end'];
+            $start = max(0, min(23, (int) $entry['hour_start']));
+            $end = max(0, min(23, (int) $entry['hour_end']));
+            if ($start === $end) {
+                continue;
+            }
 
             if ($start <= $end) {
                 if ($currentHour >= $start && $currentHour < $end) {
@@ -345,6 +348,9 @@ class DdnsScheduler
 
         $cycle = [];
         foreach ($entries as $entry) {
+            if (empty($entry['instance_id'])) {
+                continue;
+            }
             $days = max(1, (int) ($entry['days'] ?? 1));
             for ($i = 0; $i < $days; $i++) {
                 $cycle[] = $entry['instance_id'];
