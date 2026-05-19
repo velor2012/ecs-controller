@@ -258,7 +258,10 @@ class DdnsScheduler
             return false;
         }
         try {
-            return $this->app->controlInstanceAction($account['id'], $action, 'KeepCharging', true, true);
+            $shutdownMode = $action === 'stop'
+                ? $this->configManager->get('shutdown_mode', 'KeepCharging')
+                : 'KeepCharging';
+            return $this->app->controlInstanceAction($account['id'], $action, $shutdownMode, true, true);
         } catch (Exception $e) {
             $this->db->addLog('schedule', "DDNS调度 实例{$action}失败 [{$account['instance_id']}]: " . $e->getMessage());
             return false;
