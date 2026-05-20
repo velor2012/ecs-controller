@@ -7,8 +7,15 @@ services:
       - "43210:80"
     volumes:
       - ./data:/var/www/html/data
+    env_file:
+      - path: ./.env
+        required: false
     environment:
       - TZ=Asia/Shanghai
+      - HOST_http_proxy=${http_proxy:-}
+      - HOST_https_proxy=${https_proxy:-}
+      - HOST_HTTP_PROXY=${HTTP_PROXY:-}
+      - HOST_HTTPS_PROXY=${HTTPS_PROXY:-}
     dns:
       - 223.5.5.5
       - 114.114.114.114
