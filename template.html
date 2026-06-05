@@ -2977,9 +2977,12 @@
                                     </p>
 
                                     <div class="schedule-surface schedule-surface--soft flex gap-2 p-1">
-                                        <button @click="scheduleFormType = 'hour_slot'" class="schedule-tab-button flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'hour_slot' ? 'is-active' : 'text-[var(--muted)] hover:text-[var(--text)]'">按小时调度</button>
+                                        <button @click="scheduleFormType = 'hour_cycle'" class="schedule-tab-button flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'hour_cycle' ? 'is-active' : 'text-[var(--muted)] hover:text-[var(--text)]'">按小时轮换</button>
                                         <button @click="scheduleFormType = 'day_cycle'" class="schedule-tab-button flex-1 rounded-[10px] py-2 text-sm font-medium transition" :class="scheduleFormType === 'day_cycle' ? 'is-active' : 'text-[var(--muted)] hover:text-[var(--text)]'">按天轮换</button>
                                     </div>
+                                    <p class="text-xs leading-5 text-[var(--muted)]">
+                                        实例会按添加顺序依次运行指定时长，最后一个结束后回到第一个；保存规则后会从当前时间重新开始计算周期。
+                                    </p>
 
                                     <div>
                                         <label class="mb-1.5 block text-xs font-semibold text-[#6f7787]">域名前缀</label>
@@ -3016,7 +3019,7 @@
                                     <div>
                                         <div class="mb-1.5 flex items-center justify-between gap-3">
                                             <label class="text-xs font-semibold text-[#6f7787]">已添加调度实例</label>
-                                            <span class="text-xs text-[var(--muted)]">按天轮换会按添加顺序执行</span>
+                                            <span class="text-xs text-[var(--muted)]">轮换会按添加顺序执行</span>
                                         </div>
                                         <div v-if="!scheduleInstanceOptions.length" class="schedule-surface schedule-surface--soft flex flex-col items-center gap-2 border-dashed py-6">
                                             <p class="text-xs text-slate-400 m-0">暂无可调度实例，请先同步实例。</p>
@@ -3047,26 +3050,9 @@
                                                     <button @click="removeScheduleInstance(index)" class="ghost-button compact-button text-xs">移除</button>
                                                 </div>
                                                 <div class="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--input-bg)] p-2">
-                                                    <template v-if="scheduleFormType === 'hour_slot'">
-                                                        <span class="text-xs text-[var(--muted)]">活动时间</span>
-                                                        <app-select
-                                                        v-model="entry.hour_start"
-                                                        class="glass-select schedule-time-select"
-                                                        :options="scheduleHourStartOptions"
-                                                    ></app-select>
-                                                    <span class="text-slate-400">→</span>
-                                                    <app-select
-                                                        v-model="entry.hour_end"
-                                                        class="glass-select schedule-time-select"
-                                                        :options="scheduleHourEndOptions"
-                                                    ></app-select>
-                                                        <span v-if="Number(entry.hour_end) < Number(entry.hour_start)" class="text-xs text-amber-500">跨日</span>
-                                                    </template>
-                                                    <template v-else>
-                                                        <span class="text-xs text-[var(--muted)]">活动</span>
-                                                        <input v-model.number="entry.days" type="number" class="glass-input schedule-day-input" min="1" max="365">
-                                                        <span class="text-xs text-slate-500">天</span>
-                                                    </template>
+                                                    <span class="text-xs text-[var(--muted)]">运行</span>
+                                                    <input v-model.number="entry.duration" type="number" class="glass-input schedule-day-input" min="1" max="365">
+                                                    <span class="text-xs text-slate-500">{{ scheduleFormType === 'hour_cycle' ? '小时' : '天' }}</span>
                                                 </div>
                                             </div>
                                         </template>
@@ -4012,7 +3998,7 @@
                 const scheduleSwitching = ref(false);
                 const scheduleAutoPaused = ref(false);
                 let scheduleEntrySeed = 0;
-                const scheduleFormType = ref('hour_slot');
+                const scheduleFormType = ref('hour_cycle');
                 const scheduleFormDefaultId = ref('');
                 const scheduleFormEntries = ref([]);
                 const pendingScheduleInstanceId = ref('');
@@ -4037,18 +4023,8 @@
                 const scheduleAvailableInstanceOptions = computed(() =>
                     scheduleInstanceSelectOptions.value.filter(option => !scheduleAddedInstanceIds.value.has(option.value))
                 );
-                const scheduleHourStartOptions = Array.from({ length: 24 }, (_, hour) => ({
-                    value: hour,
-                    label: `${String(hour).padStart(2, '0')}:00`
-                }));
-                const scheduleHourEndOptions = scheduleHourStartOptions;
                 const createDefaultScheduleEntry = (instanceId) => {
-                    if (scheduleFormType.value === 'hour_slot') {
-                        const start = new Date().getHours();
-                        const end = (start + 1) % 24;
-                        return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, hour_start: start, hour_end: end };
-                    }
-                    return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, days: 1 };
+                    return { _key: `entry-${++scheduleEntrySeed}`, instance_id: instanceId, duration: 1 };
                 };
 
                 const findScheduleEntryIndex = (instanceId) =>
@@ -5394,7 +5370,7 @@
                             scheduleAutoPaused.value = !!(data.state && data.state.auto_schedule_paused);
                              if (rules.length > 0) {
                                 const rule = rules[0];
-                                scheduleFormType.value = rule.schedule_type || 'hour_slot';
+                                scheduleFormType.value = rule.schedule_type === 'day_cycle' ? 'day_cycle' : 'hour_cycle';
                                  scheduleFormDefaultId.value = rule.default_instance_id || '';
                                  scheduleFormEntries.value = (rule.entries || []).map(normalizeScheduleEntry);
                                  scheduleDomainPrefix.value = rule.domain_prefix || '';
@@ -5406,32 +5382,13 @@
 
                 const normalizeScheduleEntry = (entry) => {
                     const key = entry._key || `entry-${++scheduleEntrySeed}`;
-                    if (scheduleFormType.value === 'day_cycle') {
-                        const explicitDays = Number(entry.days || 0);
-                        const dayStart = Number(entry.day_start || 1);
-                        const dayEnd = Number(entry.day_end || dayStart);
-                        const rangeDays = Math.max(1, dayEnd - dayStart + 1);
-                        return {
-                            ...entry,
-                            _key: key,
-                            days: Math.max(1, explicitDays || rangeDays)
-                        };
-                    }
-                    const start = normalizeHour(entry.hour_start, 0);
-                    const end = normalizeHour(entry.hour_end, (start + 1) % 24);
-                    return { ...entry, _key: key, hour_start: start, hour_end: end };
+                    return { ...entry, _key: key, duration: normalizeScheduleDuration(entry.duration) };
                 };
 
-                const normalizeHour = (value, fallback = 0) => {
-                    const hour = Number(value);
-                    if (!Number.isFinite(hour)) return fallback;
-                    return Math.max(0, Math.min(23, Math.floor(hour)));
-                };
-
-                const normalizeScheduleDays = (value) => {
-                    const days = Number(value);
-                    if (!Number.isFinite(days)) return 1;
-                    return Math.max(1, Math.min(365, Math.floor(days)));
+                const normalizeScheduleDuration = (value) => {
+                    const duration = Number(value);
+                    if (!Number.isFinite(duration)) return 1;
+                    return Math.max(1, Math.min(365, Math.floor(duration)));
                 };
 
                 const saveScheduleForm = async () => {
@@ -5444,10 +5401,6 @@
                         return true;
                     });
                     if (!entries.length) { openAlert('请至少添加一个有效的调度条目', 'error'); return; }
-                    if (scheduleFormType.value === 'hour_slot') {
-                        const invalidEqual = entries.some(e => normalizeHour(e.hour_start) === normalizeHour(e.hour_end));
-                        if (invalidEqual) { openAlert('小时调度的开始时间不能等于结束时间', 'error'); return; }
-                    }
                     savingSchedule.value = true;
                     try {
                         const rule = {
@@ -5455,12 +5408,10 @@
                             domain_prefix: scheduleDomainPrefix.value || '',
                             default_instance_id: scheduleFormDefaultId.value || '',
                             schedule_type: scheduleFormType.value,
-                             entries: entries.map(e => {
-                                 if (scheduleFormType.value === 'hour_slot') {
-                                     return { instance_id: e.instance_id, hour_start: normalizeHour(e.hour_start), hour_end: normalizeHour(e.hour_end) };
-                                 }
-                                 return { instance_id: e.instance_id, days: normalizeScheduleDays(e.days) };
-                             })
+                             entries: entries.map(e => ({
+                                 instance_id: e.instance_id,
+                                 duration: normalizeScheduleDuration(e.duration)
+                             }))
                          };
                         const res = await fetch('index.php?action=save_schedule_rules', {
                             method: 'POST', body: JSON.stringify({ rules: [rule] })
@@ -5869,8 +5820,6 @@
                     scheduleInstanceOptions,
                     scheduleAvailableInstanceOptions,
                     scheduleDefaultInstanceOptions,
-                    scheduleHourStartOptions,
-                    scheduleHourEndOptions,
                     getScheduleInstanceLabel,
                     isScheduleInstanceEnabled,
                     addScheduleInstance,

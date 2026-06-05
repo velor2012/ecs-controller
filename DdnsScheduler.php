@@ -107,7 +107,7 @@ class DdnsScheduler
             return false;
         }
 
-        $scheduleType = $rule['schedule_type'] ?? 'hour_slot';
+        $scheduleType = $rule['schedule_type'] ?? 'hour_cycle';
         $entries = $rule['entries'];
         $domain = $this->configManager->get('ddns_domain', '');
         $prefix = trim((string)($rule['domain_prefix'] ?? ''));
@@ -119,10 +119,10 @@ class DdnsScheduler
         $defaultInstanceId = $rule['default_instance_id'] ?? '';
 
         $activeInstanceIds = [];
-        if ($scheduleType === 'hour_slot') {
-            $activeInstanceIds = $this->resolveHourSlotTargets($entries);
+        if ($scheduleType === 'hour_cycle') {
+            $activeInstanceIds = $this->resolveCycleTargets($entries, (int) ($rule['anchor_at'] ?? 0), 3600);
         } elseif ($scheduleType === 'day_cycle') {
-            $activeInstanceIds = $this->resolveDayCycleTargets($entries);
+            $activeInstanceIds = $this->resolveCycleTargets($entries, (int) ($rule['anchor_at'] ?? 0), 86400);
         }
         $targetInstanceId = $activeInstanceIds[0] ?? null;
 
@@ -222,9 +222,6 @@ class DdnsScheduler
                 $stateData['manual_switch_at'] = time();
             }
             $this->configManager->saveScheduleState($stateData);
-            if ($scheduleType === 'day_cycle' && $this->configManager->getScheduleActivatedAt() === null) {
-                $this->configManager->saveScheduleActivatedAt(time());
-            }
             $activeText = implode(',', $activeInstanceIds);
             $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] from {$oldTarget} → {$targetInstanceId} ({$targetIp}) active=[{$activeText}] (success)");
 
@@ -284,69 +281,10 @@ class DdnsScheduler
         return $this->getEffectivePublicIp($account);
     }
 
-    private function resolveHourSlotTargets(array $entries): array
+    private function resolveCycleTargets(array $entries, int $anchorAt, int $unitSeconds): array
     {
-        $currentHour = (int) date('G');
-        $targets = [];
-
-        foreach ($entries as $entry) {
-            if (!isset($entry['hour_start'], $entry['hour_end'])) {
-                continue;
-            }
-            $start = max(0, min(23, (int) $entry['hour_start']));
-            $end = max(0, min(23, (int) $entry['hour_end']));
-            if ($start === $end) {
-                continue;
-            }
-
-            if ($start <= $end) {
-                if ($currentHour >= $start && $currentHour < $end) {
-                    $targets[] = $entry['instance_id'] ?? '';
-                }
-            } else {
-                if ($currentHour >= $start || $currentHour < $end) {
-                    $targets[] = $entry['instance_id'] ?? '';
-                }
-            }
-        }
-
-        return $this->normalizeInstanceIds($targets);
-    }
-
-    private function resolveDayCycleTargets(array $entries): array
-    {
-        if (empty($entries)) {
+        if (empty($entries) || $unitSeconds <= 0) {
             return [];
-        }
-
-        $activatedAt = $this->configManager->getScheduleActivatedAt();
-        $now = time();
-
-        if ($activatedAt !== null) {
-            $elapsedDays = (int) (($now - $activatedAt) / 86400);
-        } else {
-            $elapsedDays = (int) date('j') - 1;
-        }
-
-        if ($this->usesExplicitDayRanges($entries)) {
-            $cycleLength = 0;
-            foreach ($entries as $entry) {
-                $cycleLength = max($cycleLength, (int) ($entry['day_end'] ?? 0));
-            }
-            if ($cycleLength <= 0) {
-                return [];
-            }
-
-            $currentDay = ($elapsedDays % $cycleLength) + 1;
-            $targets = [];
-            foreach ($entries as $entry) {
-                $start = max(1, (int) ($entry['day_start'] ?? 1));
-                $end = max($start, (int) ($entry['day_end'] ?? $start));
-                if ($currentDay >= $start && $currentDay <= $end) {
-                    $targets[] = $entry['instance_id'] ?? '';
-                }
-            }
-            return $this->normalizeInstanceIds($targets);
         }
 
         $cycle = [];
@@ -354,8 +292,8 @@ class DdnsScheduler
             if (empty($entry['instance_id'])) {
                 continue;
             }
-            $days = max(1, (int) ($entry['days'] ?? 1));
-            for ($i = 0; $i < $days; $i++) {
+            $duration = max(1, (int) ($entry['duration'] ?? 1));
+            for ($i = 0; $i < $duration; $i++) {
                 $cycle[] = $entry['instance_id'];
             }
         }
@@ -364,18 +302,12 @@ class DdnsScheduler
             return [];
         }
 
-        $position = $elapsedDays % count($cycle);
-        return $this->normalizeInstanceIds([$cycle[$position < 0 ? 0 : $position]]);
-    }
-
-    private function usesExplicitDayRanges(array $entries): bool
-    {
-        foreach ($entries as $entry) {
-            if (isset($entry['day_start']) || isset($entry['day_end'])) {
-                return true;
-            }
+        if ($anchorAt <= 0) {
+            $anchorAt = time();
         }
-        return false;
+        $elapsedUnits = intdiv(max(0, time() - $anchorAt), $unitSeconds);
+        $position = $elapsedUnits % count($cycle);
+        return $this->normalizeInstanceIds([$cycle[$position]]);
     }
 
     private function normalizeInstanceIds(array $ids): array

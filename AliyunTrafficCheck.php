@@ -2376,7 +2376,7 @@ class AliyunTrafficCheck
                 continue;
             }
 
-            $scheduleType = ($rule['schedule_type'] ?? 'hour_slot') === 'day_cycle' ? 'day_cycle' : 'hour_slot';
+            $scheduleType = ($rule['schedule_type'] ?? 'hour_cycle') === 'day_cycle' ? 'day_cycle' : 'hour_cycle';
             $entries = [];
             $seen = [];
             foreach (($rule['entries'] ?? []) as $entry) {
@@ -2389,23 +2389,10 @@ class AliyunTrafficCheck
                 }
                 $seen[$instanceId] = true;
 
-                if ($scheduleType === 'hour_slot') {
-                    $start = $this->normalizeScheduleHour($entry['hour_start'] ?? 0);
-                    $end = $this->normalizeScheduleHour($entry['hour_end'] ?? 0);
-                    if ($start === $end) {
-                        throw new Exception('小时调度的开始时间不能等于结束时间');
-                    }
-                    $entries[] = [
-                        'instance_id' => $instanceId,
-                        'hour_start' => $start,
-                        'hour_end' => $end
-                    ];
-                } else {
-                    $entries[] = [
-                        'instance_id' => $instanceId,
-                        'days' => $this->normalizeScheduleDays($entry)
-                    ];
-                }
+                $entries[] = [
+                    'instance_id' => $instanceId,
+                    'duration' => $this->normalizeScheduleDuration($entry)
+                ];
             }
 
             if (empty($entries)) {
@@ -2423,6 +2410,7 @@ class AliyunTrafficCheck
                 'domain_prefix' => trim((string) ($rule['domain_prefix'] ?? '')),
                 'default_instance_id' => $defaultInstanceId,
                 'schedule_type' => $scheduleType,
+                'anchor_at' => time(),
                 'entries' => $entries
             ];
         }
@@ -2447,22 +2435,10 @@ class AliyunTrafficCheck
         return $ids;
     }
 
-    private function normalizeScheduleHour($value): int
+    private function normalizeScheduleDuration(array $entry): int
     {
-        $hour = (int) $value;
-        return max(0, min(23, $hour));
-    }
-
-    private function normalizeScheduleDays(array $entry): int
-    {
-        if (isset($entry['days'])) {
-            $days = (int) $entry['days'];
-        } else {
-            $start = max(1, (int) ($entry['day_start'] ?? 1));
-            $end = max($start, (int) ($entry['day_end'] ?? $start));
-            $days = $end - $start + 1;
-        }
-        return max(1, min(365, $days));
+        $duration = (int) ($entry['duration'] ?? 1);
+        return max(1, min(365, $duration));
     }
 
     public function triggerScheduleSwitch(int $ruleIndex): array

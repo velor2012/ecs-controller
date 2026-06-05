@@ -667,17 +667,6 @@ class ConfigManager
         $this->saveSetting('ddns_schedule_state', json_encode($state, JSON_UNESCAPED_UNICODE));
     }
 
-    public function getScheduleActivatedAt(): ?int
-    {
-        $val = $this->get('ddns_schedule_activated_at', '');
-        return $val !== '' ? (int) $val : null;
-    }
-
-    public function saveScheduleActivatedAt(int $timestamp): void
-    {
-        $this->saveSetting('ddns_schedule_activated_at', (string) $timestamp);
-    }
-
     private function normalizeAccountGroups(array $groups, $allowEmpty = false)
     {
         $normalized = [];
