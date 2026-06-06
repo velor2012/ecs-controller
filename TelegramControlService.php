@@ -690,7 +690,11 @@ class TelegramControlService
         curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($payload));
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        $requestTimeout = 15;
+        if (isset($payload['timeout'])) {
+            $requestTimeout = max($requestTimeout, ((int) $payload['timeout']) + 5);
+        }
+        curl_setopt($ch, CURLOPT_TIMEOUT, $requestTimeout);
 
         if ($proxyType === 'socks5') {
             $proxyIp = trim((string) ($this->settings['notify_tg_proxy_ip'] ?? ''));
@@ -729,10 +733,9 @@ class TelegramControlService
 
     private function buildRequestDebug($method, $url, array $payload, $proxyType, $httpCode)
     {
-        $safeUrl = preg_replace('/\/bot[^\/]+\//', '/bot***/', (string) $url);
         $parts = [
             'method=' . $method,
-            'url=' . $safeUrl,
+            'url=' . (string) $url,
             'params=' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
             'proxy_type=' . ($proxyType ?: 'none'),
             'http_code=' . (string) $httpCode
