@@ -717,7 +717,7 @@ class AliyunTrafficCheck
                 $scheduleTargetId = $scheduleState['current_instance_id'] ?? '';
                 $linkingEnabled = $this->configManager->get('ddns_schedule_linking_enabled', '0') === '1';
                 $autoPaused = !empty($scheduleState['auto_schedule_paused']);
-                $scheduledInstanceIds = $this->getScheduledInstanceIds();
+                $scheduledInstanceIds = $this->getDdnsEligibleScheduledInstanceIds();
                 $isScheduled = in_array($account['instance_id'], $scheduledInstanceIds, true);
                 $shouldSkipKeepAlive = $isScheduled
                     && $linkingEnabled
@@ -2177,19 +2177,44 @@ class AliyunTrafficCheck
         return $groupCounts;
     }
 
-    private function getScheduledInstanceIds(): array
+    private function getDdnsEligibleScheduledInstanceIds(): array
     {
         $rules = $this->configManager->getScheduleRules();
-        $ids = [];
-        foreach ($rules as $rule) {
-            foreach ($rule['entries'] ?? [] as $entry) {
-                $eid = $entry['instance_id'] ?? '';
-                if ($eid !== '') {
-                    $ids[] = $eid;
-                }
+        $accountsByInstanceId = [];
+        foreach ($this->configManager->getAccounts() as $account) {
+            $instanceId = trim((string) ($account['instance_id'] ?? ''));
+            if ($instanceId !== '') {
+                $accountsByInstanceId[$instanceId] = $account;
             }
         }
+
+        $ids = [];
+        foreach ($rules as $rule) {
+            if (empty($rule['enabled'])) {
+                continue;
+            }
+
+            $eligibleRuleIds = [];
+            foreach ($rule['entries'] ?? [] as $entry) {
+                $eid = trim((string) ($entry['instance_id'] ?? ''));
+                $account = $accountsByInstanceId[$eid] ?? null;
+                if ($account !== null && !$this->hasAccountScheduleEnabled($account)) {
+                    $eligibleRuleIds[] = $eid;
+                }
+            }
+            $eligibleRuleIds = array_unique($eligibleRuleIds);
+            if (count($eligibleRuleIds) < 2) {
+                continue;
+            }
+            $ids = array_merge($ids, $eligibleRuleIds);
+        }
         return array_unique($ids);
+    }
+
+    private function hasAccountScheduleEnabled(array $account): bool
+    {
+        return !empty($account['schedule_enabled'])
+            && (!empty($account['schedule_start_enabled']) || !empty($account['schedule_stop_enabled']));
     }
 
     private function getDdnsGroupKey(array $account)

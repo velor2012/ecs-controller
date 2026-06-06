@@ -61,7 +61,7 @@ class DdnsScheduler
             $oldState = $this->configManager->getScheduleState();
             $this->oldTargetForLog = $oldState['current_instance_id'] ?? null;
             $this->configManager->saveScheduleState([]);
-            return $this->processRule($rule, false);
+            return $this->processRule($rule, true);
         } finally {
             $this->oldTargetForLog = null;
             $this->releaseLock($lock);
@@ -134,7 +134,7 @@ class DdnsScheduler
         return null;
     }
 
-    private function processRule(array $rule, bool $useDefaultFallback = true): bool
+    private function processRule(array $rule, bool $forceDifferentTarget = false): bool
     {
         if (empty($rule['enabled']) || empty($rule['entries'])) {
             return false;
@@ -166,14 +166,14 @@ class DdnsScheduler
         $currentTarget = $state['current_instance_id'] ?? '';
 
         if ($targetInstanceId === null || $targetInstanceId === '') {
-            if (!$useDefaultFallback) {
+            if ($forceDifferentTarget) {
                 $excludeTarget = $this->oldTargetForLog ?? $currentTarget;
-                $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget);
+                $targetInstanceId = $this->resolveRandomDifferentTarget($entries, $excludeTarget);
                 $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
             }
-        } elseif (!$useDefaultFallback && $targetInstanceId === $this->oldTargetForLog) {
+        } elseif ($forceDifferentTarget && $targetInstanceId === $this->oldTargetForLog) {
             $excludeTarget = $this->oldTargetForLog;
-            $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget);
+            $targetInstanceId = $this->resolveRandomDifferentTarget($entries, $excludeTarget);
             $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
         }
 
@@ -417,7 +417,7 @@ class DdnsScheduler
      * 强制切换的随机选择策略：
      * - 多个合格条目 → 随机选非当前
      */
-    private function resolveRandomFallback(array $entries, string $excludeTarget): ?string
+    private function resolveRandomDifferentTarget(array $entries, string $excludeTarget): ?string
     {
         $instanceIds = [];
         foreach ($entries as $e) {

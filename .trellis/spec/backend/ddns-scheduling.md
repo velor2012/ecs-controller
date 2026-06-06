@@ -25,6 +25,7 @@
 - Valid schedulable instances are known ECS instances whose status is not `Released`.
 - Account-level scheduled start/stop has higher priority than DDNS scheduling; entries whose account has scheduled start or stop enabled remain saved but are ignored by scheduler target resolution.
 - Scheduler execution requires at least two eligible entries after account-schedule filtering; fewer than two eligible entries is a no-op and `next_switch_time` is `null`.
+- Monitor keep-alive DDNS exemptions must use the same eligible-entry filtering so account scheduled start/stop instances are not treated as DDNS-managed inactive targets.
 - Legacy `hour_slot`, `hour_start`, `hour_end`, `days`, `day_start`, and `day_end` are not part of the active schedule contract.
 - `get_schedule_rules` returns `next_switch_time` as `YYYY-MM-DD HH:MM:SS` for the first enabled calculable rule, or `null` when unavailable.
 
@@ -52,6 +53,7 @@
 - Scheduler interpretation: assert `hour_cycle` and `day_cycle` share the same duration-cycle resolver with different unit seconds.
 - Scheduler interpretation: assert fewer than two eligible entries no-op.
 - Scheduler interpretation: assert account scheduled start/stop entries are ignored by DDNS scheduling and linking.
+- Monitor interpretation: assert account scheduled start/stop entries are not included in DDNS keep-alive skip lists.
 - Cycle interpretation: assert entries `A duration=2, B duration=1` resolve as `A, A, B, A, A, B...` for both schedule types.
 - Next switch interpretation: assert `next_switch_time` is the end of the current entry duration block, not just the next single unit boundary.
 - Frontend UI: assert add/remove instance flow, conflict warnings, and save payload use `duration` fields for both modes without `default_instance_id`.
