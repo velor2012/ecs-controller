@@ -3075,6 +3075,7 @@
                             </div>
                             <div class="tab-pill-group">
                                 <button @click="currentLogTab = 'action'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'action' }">动作日志</button>
+                                <button @click="currentLogTab = 'schedule'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'schedule' }">DDNS调度日志</button>
                                 <button @click="currentLogTab = 'heartbeat'; fetchLogs()" class="ghost-button" :class="{ 'text-dark-button': currentLogTab === 'heartbeat' }">心跳日志</button>
                                 <button @click="clearLogs" class="danger-button">清空</button>
                             </div>
@@ -4567,7 +4568,7 @@
                 };
 
                 const clearLogs = async () => {
-                    const confirmed = await askConfirm(`确定清空${currentLogTab.value === 'action' ? '动作' : '心跳'}日志吗？`, {
+                    const confirmed = await askConfirm(`确定清空${logTabLabel(currentLogTab.value)}日志吗？`, {
                         title: '清空日志'
                     });
                     if (!confirmed) return;
@@ -5599,8 +5600,15 @@
                     info: '信息',
                     warning: '提醒',
                     error: '错误',
+                    schedule: 'DDNS调度',
                     heartbeat: '检测'
                 }[type] || '信息');
+
+                const logTabLabel = (tab) => ({
+                    action: '动作',
+                    schedule: 'DDNS调度',
+                    heartbeat: '心跳'
+                }[tab] || '动作');
 
                 const reloadPage = () => {
                     window.location.reload();

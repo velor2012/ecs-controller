@@ -214,13 +214,13 @@ class DdnsScheduler
                 }
                 $activeStatus = $activeAccount['instance_status'] ?? '';
                 if ($activeStatus === 'Stopped') {
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机: {$activeId}");
+                    $this->db->addLog('info', "DDNS调度 [{$ruleDomain}] 联动开机: {$activeId}");
                     $started = $this->controlInstance($activeAccount, 'start');
                     if (!$started) {
-                        $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机失败 {$activeId}，切换中止");
+                        $this->db->addLog('error', "DDNS调度 [{$ruleDomain}] 联动开机失败 {$activeId}，切换中止");
                         return false;
                     }
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动开机成功: {$activeId}");
+                    $this->db->addLog('info', "DDNS调度 [{$ruleDomain}] 联动开机成功: {$activeId}");
                     if ($activeId === $targetInstanceId) {
                         $targetIp = $this->refreshInstanceIp($activeAccount);
                     }
@@ -230,7 +230,7 @@ class DdnsScheduler
             if ($targetAccount !== null && empty($targetIp)) {
                 $targetIp = $this->refreshInstanceIp($targetAccount);
                 if (empty($targetIp)) {
-                    $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 开机后获取IP失败 {$targetInstanceId}，切换中止");
+                    $this->db->addLog('error', "DDNS调度 [{$ruleDomain}] 开机后获取IP失败 {$targetInstanceId}，切换中止");
                     return false;
                 }
             }
@@ -269,9 +269,9 @@ class DdnsScheduler
                     }
                     $inactiveStatus = $inactiveAccount['instance_status'] ?? '';
                     if ($inactiveStatus === 'Running' || $inactiveStatus === 'Starting') {
-                        $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动关机: {$scheduledId}");
+                        $this->db->addLog('info', "DDNS调度 [{$ruleDomain}] 联动关机: {$scheduledId}");
                         $stopped = $this->controlInstance($inactiveAccount, 'stop');
-                        $this->db->addLog('schedule', "DDNS调度 [{$ruleDomain}] 联动关机" . ($stopped ? '成功' : '失败') . ": {$scheduledId}");
+                        $this->db->addLog($stopped ? 'info' : 'error', "DDNS调度 [{$ruleDomain}] 联动关机" . ($stopped ? '成功' : '失败') . ": {$scheduledId}");
                     }
                 }
             }
@@ -293,7 +293,7 @@ class DdnsScheduler
                 : 'KeepCharging';
             return $this->app->controlInstanceAction($account['id'], $action, $shutdownMode, true, true);
         } catch (Exception $e) {
-            $this->db->addLog('schedule', "DDNS调度 实例{$action}失败 [{$account['instance_id']}]: " . $e->getMessage());
+            $this->db->addLog('error', "DDNS调度 实例{$action}失败 [{$account['instance_id']}]: " . $e->getMessage());
             return false;
         }
     }
@@ -309,7 +309,7 @@ class DdnsScheduler
                 return $this->getEffectivePublicIp($synced);
             }
         } catch (Exception $e) {
-            $this->db->addLog('schedule', 'DDNS调度 刷新实例IP异常: ' . $e->getMessage());
+            $this->db->addLog('error', 'DDNS调度 刷新实例IP异常: ' . $e->getMessage());
         }
         return $this->getEffectivePublicIp($account);
     }

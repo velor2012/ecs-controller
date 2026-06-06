@@ -381,9 +381,12 @@ class AliyunTrafficCheck
         if ($tab === 'heartbeat') {
             // 心跳日志：只看 heartbeat 类型
             $types = ['heartbeat'];
+        } elseif ($tab === 'schedule') {
+            // DDNS 调度日志：只看 schedule 类型
+            $types = ['schedule'];
         } else {
-            // 动作日志：查看 info、warning 和 schedule 类型
-            $types = ['info', 'warning', 'schedule'];
+            // 动作日志：查看普通操作和错误日志
+            $types = ['info', 'warning', 'error'];
         }
 
         // 仅返回最近 20 条
@@ -421,6 +424,8 @@ class AliyunTrafficCheck
         $result = false;
         if ($tab === 'heartbeat') {
             $result = $this->db->clearLogsByTypes(['heartbeat']);
+        } elseif ($tab === 'schedule') {
+            $result = $this->db->clearLogsByTypes(['schedule']);
         } else {
             $result = $this->db->clearLogsByTypes(['info', 'warning', 'error']);
         }
@@ -764,7 +769,7 @@ class AliyunTrafficCheck
                 $scheduler = new DdnsScheduler($this->configManager, $this->db, $this->ddnsService, $this);
                 $scheduler->checkAndSwitch();
             } catch (\Exception $e) {
-                $this->db->addLog('error', 'DDNS 调度执行异常: ' . strip_tags($e->getMessage()));
+                $this->db->addLog('schedule', 'DDNS 调度执行异常: ' . strip_tags($e->getMessage()));
             }
         }
 
