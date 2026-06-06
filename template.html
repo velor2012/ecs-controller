@@ -2957,7 +2957,10 @@
                                 <div class="flex items-start justify-between gap-3 mb-5">
                                     <div>
                                         <p class="subtle-label">DDNS 调度</p>
-                                        <h3 class="mt-1 text-lg font-bold">定时切换</h3>
+                                        <div class="mt-1 flex flex-wrap items-center gap-2">
+                                            <h3 class="text-lg font-bold">定时切换</h3>
+                                            <span class="text-xs font-medium text-[#6f7787]">下次切换：{{ scheduleNextSwitchTime || '--' }}</span>
+                                        </div>
                                     </div>
                                     <p class="text-xs leading-5 text-[#6f7787] text-right max-w-[280px]">
                                         根域名 <code class="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs">{{ config.Ddns.domain }}</code>
@@ -3025,7 +3028,7 @@
                                             <p class="text-xs text-slate-400 m-0">暂无可调度实例，请先同步实例。</p>
                                         </div>
                                         <template v-else>
-                                            <div class="schedule-surface schedule-surface--soft mb-3 flex flex-wrap items-center gap-2 p-3">
+                                            <div class="schedule-surface schedule-surface--soft mb-4 flex flex-wrap items-center gap-3 px-4 py-3.5">
                                                 <div class="min-w-[220px] flex-1">
                                                     <app-select
                                                         v-model="pendingScheduleInstanceId"
@@ -3035,24 +3038,24 @@
                                                         :placeholder="scheduleAvailableInstanceOptions.length ? '选择要添加的实例' : '所有实例已添加'"
                                                     ></app-select>
                                                 </div>
-                                                <button @click="addScheduleInstance" class="solid-button text-sm" :disabled="!pendingScheduleInstanceId">添加实例</button>
+                                                <button @click="addScheduleInstance" class="solid-button text-sm !px-4 !py-2.5" :disabled="!pendingScheduleInstanceId">添加实例</button>
                                             </div>
 
                                             <div v-if="!scheduleFormEntries.length" class="schedule-surface schedule-surface--soft flex flex-col items-center gap-2 border-dashed py-6">
                                                 <p class="text-xs text-slate-400 m-0">尚未添加调度实例，请先通过下拉框选择并添加。</p>
                                             </div>
-                                            <div v-for="(entry, index) in scheduleFormEntries" :key="entry._key" class="schedule-surface p-3.5 mb-3 transition hover:shadow-sm">
-                                                <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                            <div v-for="(entry, index) in scheduleFormEntries" :key="entry._key" class="schedule-surface mb-3 px-4 py-3.5 transition hover:shadow-sm">
+                                                <div class="mb-3.5 flex flex-wrap items-center justify-between gap-3">
                                                     <div class="min-w-0">
                                                         <p class="m-0 truncate text-sm font-semibold text-[var(--text)]">{{ index + 1 }}. {{ getScheduleInstanceLabel(entry.instance_id) }}</p>
                                                         <p class="m-0 mt-1 text-xs text-[var(--muted)]">{{ entry.instance_id }}</p>
                                                     </div>
-                                                    <button @click="removeScheduleInstance(index)" class="ghost-button compact-button text-xs">移除</button>
+                                                    <button @click="removeScheduleInstance(index)" class="ghost-button compact-button text-xs !px-3 !py-1.5">移除</button>
                                                 </div>
-                                                <div class="mb-2 flex flex-wrap items-center gap-2 rounded-[12px] border border-[var(--line)] bg-[var(--input-bg)] p-2">
-                                                    <span class="text-xs text-[var(--muted)]">运行</span>
-                                                    <input v-model.number="entry.duration" type="number" class="glass-input schedule-day-input" min="1" max="365">
-                                                    <span class="text-xs text-slate-500">{{ scheduleFormType === 'hour_cycle' ? '小时' : '天' }}</span>
+                                                <div class="flex flex-wrap items-center gap-3 rounded-[14px] bg-[var(--input-bg)] px-3.5 py-3 shadow-inner shadow-slate-200/30">
+                                                    <span class="text-xs font-medium text-[var(--muted)]">运行</span>
+                                                    <input v-model.number="entry.duration" type="number" class="glass-input schedule-day-input !px-3 !py-2" min="1" max="365">
+                                                    <span class="text-xs font-medium text-slate-500">{{ scheduleFormType === 'hour_cycle' ? '小时' : '天' }}</span>
                                                 </div>
                                             </div>
                                         </template>
@@ -3997,6 +4000,7 @@
                 const savingSchedule = ref(false);
                 const scheduleSwitching = ref(false);
                 const scheduleAutoPaused = ref(false);
+                const scheduleNextSwitchTime = ref(null);
                 let scheduleEntrySeed = 0;
                 const scheduleFormType = ref('hour_cycle');
                 const scheduleFormDefaultId = ref('');
@@ -5367,6 +5371,7 @@
                         if (data.success) {
                             const rules = data.rules || [];
                             scheduleState.value = data.state || {};
+                            scheduleNextSwitchTime.value = data.next_switch_time || null;
                             scheduleAutoPaused.value = !!(data.state && data.state.auto_schedule_paused);
                              if (rules.length > 0) {
                                 const rule = rules[0];
@@ -5804,6 +5809,7 @@
                     savingSchedule,
                     scheduleSwitching,
                     scheduleAutoPaused,
+                    scheduleNextSwitchTime,
                     toggleScheduleAutoPause,
                     formatTime,
                     loadScheduleRules,

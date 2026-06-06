@@ -101,6 +101,49 @@ class DdnsScheduler
         }
     }
 
+    public function getNextSwitchTime(array $rule): ?int
+    {
+        if (empty($rule['enabled']) || empty($rule['entries'])) {
+            return null;
+        }
+
+        $scheduleType = $rule['schedule_type'] ?? 'hour_cycle';
+        $unitSeconds = $scheduleType === 'day_cycle' ? 86400 : ($scheduleType === 'hour_cycle' ? 3600 : 0);
+        $anchorAt = (int) ($rule['anchor_at'] ?? 0);
+        if ($unitSeconds <= 0 || $anchorAt <= 0) {
+            return null;
+        }
+
+        $segments = [];
+        $cycleLength = 0;
+        foreach ($rule['entries'] as $entry) {
+            if (empty($entry['instance_id'])) {
+                continue;
+            }
+            $duration = max(1, (int) ($entry['duration'] ?? 1));
+            $segments[] = [
+                'start' => $cycleLength,
+                'end' => $cycleLength + $duration,
+            ];
+            $cycleLength += $duration;
+        }
+        if ($cycleLength <= 0) {
+            return null;
+        }
+
+        $now = time();
+        $elapsedUnits = intdiv(max(0, $now - $anchorAt), $unitSeconds);
+        $cycleStartUnits = intdiv($elapsedUnits, $cycleLength) * $cycleLength;
+        $position = $elapsedUnits % $cycleLength;
+        foreach ($segments as $segment) {
+            if ($position >= $segment['start'] && $position < $segment['end']) {
+                return $anchorAt + (($cycleStartUnits + $segment['end']) * $unitSeconds);
+            }
+        }
+
+        return null;
+    }
+
     private function processRule(array $rule, bool $useDefaultFallback = true): bool
     {
         if (empty($rule['enabled']) || empty($rule['entries'])) {

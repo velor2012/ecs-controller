@@ -8,6 +8,7 @@
 
 ### 2. Signatures
 - Frontend action: `index.php?action=save_schedule_rules`
+- Frontend read action: `index.php?action=get_schedule_rules`
 - Backend entry point: `AliyunTrafficCheck::saveScheduleRulesFromFrontend(array $data): array`
 - Persisted config key: `ddns_schedule_rules`
 - Scheduler consumer: `DdnsScheduler` reads normalized rules from config.
@@ -24,6 +25,7 @@
 - `day_cycle` interprets `duration` as exact 24-hour days and uses 86400-second units.
 - Valid schedulable instances are known ECS instances whose status is not `Released`.
 - Legacy `hour_slot`, `hour_start`, `hour_end`, `days`, `day_start`, and `day_end` are not part of the active schedule contract.
+- `get_schedule_rules` returns `next_switch_time` as `YYYY-MM-DD HH:MM:SS` for the first enabled calculable rule, or `null` when unavailable.
 
 ### 4. Validation & Error Matrix
 - Missing or invalid `rules` array -> return failure from `saveScheduleRulesFromFrontend`.
@@ -46,6 +48,7 @@
 - Save normalization: assert every save writes `anchor_at` and stores entries with `duration` only.
 - Scheduler interpretation: assert `hour_cycle` and `day_cycle` share the same duration-cycle resolver with different unit seconds.
 - Cycle interpretation: assert entries `A duration=2, B duration=1` resolve as `A, A, B, A, A, B...` for both schedule types.
+- Next switch interpretation: assert `next_switch_time` is the end of the current entry duration block, not just the next single unit boundary.
 - Frontend UI: assert add/remove instance flow and save payload use `duration` fields for both modes.
 
 ### 7. Wrong vs Correct

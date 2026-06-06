@@ -2341,10 +2341,17 @@ class AliyunTrafficCheck
         if ($this->initError) {
             return ['error' => $this->initError];
         }
+        $rules = $this->configManager->getScheduleRules();
+        $nextSwitchTime = null;
+        if (!empty($rules)) {
+            $scheduler = new DdnsScheduler($this->configManager, $this->db, $this->ddnsService, $this);
+            $nextSwitchTime = $scheduler->getNextSwitchTime($rules[0]);
+        }
         return [
             'success' => true,
-            'rules' => $this->configManager->getScheduleRules(),
+            'rules' => $rules,
             'state' => $this->configManager->getScheduleState(),
+            'next_switch_time' => $nextSwitchTime ? date('Y-m-d H:i:s', $nextSwitchTime) : null,
             'linking_enabled' => $this->configManager->get('ddns_schedule_linking_enabled', '0') === '1'
         ];
     }
