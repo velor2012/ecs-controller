@@ -2182,10 +2182,6 @@ class AliyunTrafficCheck
         $rules = $this->configManager->getScheduleRules();
         $ids = [];
         foreach ($rules as $rule) {
-            $defaultId = $rule['default_instance_id'] ?? '';
-            if ($defaultId !== '') {
-                $ids[] = $defaultId;
-            }
             foreach ($rule['entries'] ?? [] as $entry) {
                 $eid = $entry['instance_id'] ?? '';
                 if ($eid !== '') {
@@ -2406,16 +2402,10 @@ class AliyunTrafficCheck
                 throw new Exception('请至少添加一个有效的调度条目');
             }
 
-            $defaultInstanceId = trim((string) ($rule['default_instance_id'] ?? ''));
-            if ($defaultInstanceId !== '' && !isset($validInstanceIds[$defaultInstanceId])) {
-                $defaultInstanceId = '';
-            }
-
             $normalizedRules[] = [
                 'enabled' => !empty($rule['enabled']),
                 'domain' => trim((string) ($rule['domain'] ?? '')),
                 'domain_prefix' => trim((string) ($rule['domain_prefix'] ?? '')),
-                'default_instance_id' => $defaultInstanceId,
                 'schedule_type' => $scheduleType,
                 'anchor_at' => time(),
                 'entries' => $entries

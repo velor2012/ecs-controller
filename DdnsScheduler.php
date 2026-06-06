@@ -114,22 +114,12 @@ class DdnsScheduler
             return null;
         }
 
-        $segments = [];
-        $cycleLength = 0;
-        foreach ($rule['entries'] as $entry) {
-            if (empty($entry['instance_id'])) {
-                continue;
-            }
-            $duration = max(1, (int) ($entry['duration'] ?? 1));
-            $segments[] = [
-                'start' => $cycleLength,
-                'end' => $cycleLength + $duration,
-            ];
-            $cycleLength += $duration;
-        }
-        if ($cycleLength <= 0) {
+        $entries = $this->filterSchedulableEntries($rule['entries']);
+        if (count($entries) < 2) {
             return null;
         }
+
+        [$segments, $cycleLength] = $this->buildCycleSegments($entries);
 
         $now = time();
         $elapsedUnits = intdiv(max(0, $now - $anchorAt), $unitSeconds);
@@ -159,7 +149,10 @@ class DdnsScheduler
         } else {
             $ruleDomain = !empty($rule['domain']) ? $rule['domain'] : $domain;
         }
-        $defaultInstanceId = $rule['default_instance_id'] ?? '';
+        $entries = $this->filterSchedulableEntries($entries);
+        if (count($entries) < 2) {
+            return false;
+        }
 
         $activeInstanceIds = [];
         if ($scheduleType === 'hour_cycle') {
@@ -173,17 +166,14 @@ class DdnsScheduler
         $currentTarget = $state['current_instance_id'] ?? '';
 
         if ($targetInstanceId === null || $targetInstanceId === '') {
-            if ($useDefaultFallback) {
-                $targetInstanceId = $defaultInstanceId;
-                $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
-            } else {
+            if (!$useDefaultFallback) {
                 $excludeTarget = $this->oldTargetForLog ?? $currentTarget;
-                $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget, $defaultInstanceId);
+                $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget);
                 $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
             }
         } elseif (!$useDefaultFallback && $targetInstanceId === $this->oldTargetForLog) {
             $excludeTarget = $this->oldTargetForLog;
-            $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget, $defaultInstanceId);
+            $targetInstanceId = $this->resolveRandomFallback($entries, $excludeTarget);
             $activeInstanceIds = $targetInstanceId !== '' ? [$targetInstanceId] : [];
         }
 
@@ -200,7 +190,7 @@ class DdnsScheduler
         $accounts = $this->configManager->getAccounts();
         $targetIp = '';
         $targetAccount = null;
-        $scheduledInstanceIds = $this->getRuleInstanceIds($rule);
+        $scheduledInstanceIds = $this->getEntryInstanceIds($entries);
         $accountsByInstanceId = [];
         foreach ($accounts as $account) {
             $aid = $account['instance_id'] ?? '';
@@ -353,6 +343,55 @@ class DdnsScheduler
         return $this->normalizeInstanceIds([$cycle[$position]]);
     }
 
+    private function filterSchedulableEntries(array $entries): array
+    {
+        $accountsByInstanceId = [];
+        foreach ($this->configManager->getAccounts() as $account) {
+            $instanceId = trim((string) ($account['instance_id'] ?? ''));
+            if ($instanceId !== '') {
+                $accountsByInstanceId[$instanceId] = $account;
+            }
+        }
+
+        $filtered = [];
+        foreach ($entries as $entry) {
+            $instanceId = trim((string) ($entry['instance_id'] ?? ''));
+            if ($instanceId === '') {
+                continue;
+            }
+            $account = $accountsByInstanceId[$instanceId] ?? null;
+            if ($account === null || $this->hasAccountScheduleEnabled($account)) {
+                continue;
+            }
+            $filtered[] = $entry;
+        }
+        return $filtered;
+    }
+
+    private function hasAccountScheduleEnabled(array $account): bool
+    {
+        return !empty($account['schedule_enabled'])
+            && (!empty($account['schedule_start_enabled']) || !empty($account['schedule_stop_enabled']));
+    }
+
+    private function buildCycleSegments(array $entries): array
+    {
+        $segments = [];
+        $cycleLength = 0;
+        foreach ($entries as $entry) {
+            if (empty($entry['instance_id'])) {
+                continue;
+            }
+            $duration = max(1, (int) ($entry['duration'] ?? 1));
+            $segments[] = [
+                'start' => $cycleLength,
+                'end' => $cycleLength + $duration,
+            ];
+            $cycleLength += $duration;
+        }
+        return [$segments, $cycleLength];
+    }
+
     private function normalizeInstanceIds(array $ids): array
     {
         $normalized = [];
@@ -365,14 +404,10 @@ class DdnsScheduler
         return $normalized;
     }
 
-    private function getRuleInstanceIds(array $rule): array
+    private function getEntryInstanceIds(array $entries): array
     {
         $ids = [];
-        $defaultId = $rule['default_instance_id'] ?? '';
-        if ($defaultId !== '') {
-            $ids[] = $defaultId;
-        }
-        foreach ($rule['entries'] ?? [] as $entry) {
+        foreach ($entries as $entry) {
             $ids[] = $entry['instance_id'] ?? '';
         }
         return $this->normalizeInstanceIds($ids);
@@ -380,11 +415,9 @@ class DdnsScheduler
 
     /**
      * 强制切换的随机选择策略：
-     * - 仅 1 个条目 → 默认实例
-     * - 当前 = 默认实例 → 随机选非默认
-     * - 多个条目 → 随机选非当前
+     * - 多个合格条目 → 随机选非当前
      */
-    private function resolveRandomFallback(array $entries, string $excludeTarget, string $defaultInstanceId): ?string
+    private function resolveRandomFallback(array $entries, string $excludeTarget): ?string
     {
         $instanceIds = [];
         foreach ($entries as $e) {
@@ -398,28 +431,9 @@ class DdnsScheduler
             return null;
         }
 
-        if (count($instanceIds) === 1) {
-            $onlyId = $instanceIds[0];
-            if ($excludeTarget !== '' && $onlyId === $excludeTarget) {
-                return $defaultInstanceId !== '' && $defaultInstanceId !== $excludeTarget ? $defaultInstanceId : null;
-            }
-            return $defaultInstanceId !== '' && $defaultInstanceId !== $excludeTarget ? $defaultInstanceId : $onlyId;
-        }
-
-        if ($excludeTarget === $defaultInstanceId && $defaultInstanceId !== '') {
-            $nonDefaults = array_values(array_filter($instanceIds, fn($id) => $id !== $defaultInstanceId));
-            if (!empty($nonDefaults)) {
-                return $nonDefaults[array_rand($nonDefaults)];
-            }
-        }
-
         $nonCurrent = array_values(array_filter($instanceIds, fn($id) => $id !== $excludeTarget));
         if (!empty($nonCurrent)) {
             return $nonCurrent[array_rand($nonCurrent)];
-        }
-
-        if ($defaultInstanceId !== '' && $defaultInstanceId !== $excludeTarget) {
-            return $defaultInstanceId;
         }
 
         return null;

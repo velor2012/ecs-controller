@@ -3011,15 +3011,6 @@
                                     </div>
 
                                     <div>
-                                        <label class="mb-1.5 block text-xs font-semibold text-[#6f7787]">默认实例 <span class="font-normal text-[#94a3b8]">（无规则匹配时的 fallback）</span></label>
-                                        <app-select
-                                            v-model="scheduleFormDefaultId"
-                                            class="glass-select"
-                                            :options="scheduleDefaultInstanceOptions"
-                                        />
-                                    </div>
-
-                                    <div>
                                         <div class="mb-1.5 flex items-center justify-between gap-3">
                                             <label class="text-xs font-semibold text-[#6f7787]">已添加调度实例</label>
                                             <span class="text-xs text-[var(--muted)]">轮换会按添加顺序执行</span>
@@ -3056,6 +3047,9 @@
                                                     <span class="text-xs font-medium text-[var(--muted)]">运行</span>
                                                     <input v-model.number="entry.duration" type="number" class="glass-input schedule-day-input !px-3 !py-2" min="1" max="365">
                                                     <span class="text-xs font-medium text-slate-500">{{ scheduleFormType === 'hour_cycle' ? '小时' : '天' }}</span>
+                                                </div>
+                                                <div v-if="hasScheduleConflict(entry.instance_id)" class="mt-3 rounded-[12px] bg-amber-50 px-3.5 py-2.5 text-xs leading-5 text-amber-700">
+                                                    该账号已启用定时开关机，DDNS 调度会忽略此实例。
                                                 </div>
                                             </div>
                                         </template>
@@ -4003,7 +3997,6 @@
                 const scheduleNextSwitchTime = ref(null);
                 let scheduleEntrySeed = 0;
                 const scheduleFormType = ref('hour_cycle');
-                const scheduleFormDefaultId = ref('');
                 const scheduleFormEntries = ref([]);
                 const pendingScheduleInstanceId = ref('');
                 const scheduleDomainPrefix = ref('');
@@ -4017,10 +4010,6 @@
                         label: `${inst.remark || inst.instanceName || inst.instanceId} · ${inst.regionId}`
                     }))
                 );
-                const scheduleDefaultInstanceOptions = computed(() => [
-                    { value: '', label: '不指定' },
-                    ...scheduleInstanceSelectOptions.value
-                ]);
                 const scheduleAddedInstanceIds = computed(() => new Set(
                     scheduleFormEntries.value.map(entry => entry.instance_id).filter(Boolean)
                 ));
@@ -4040,6 +4029,17 @@
                     const inst = scheduleInstanceOptions.value.find(item => item.instanceId === instanceId);
                     if (!inst) return instanceId || '未知实例';
                     return `${inst.remark || inst.instanceName || inst.instanceId} · ${inst.regionId}`;
+                };
+
+                const getScheduleInstanceAccount = (instanceId) => {
+                    const inst = scheduleInstanceOptions.value.find(item => item.instanceId === instanceId);
+                    if (!inst) return null;
+                    return (config.value.Accounts || []).find(acc => acc.groupKey && acc.groupKey === inst.groupKey) || null;
+                };
+
+                const hasScheduleConflict = (instanceId) => {
+                    const account = getScheduleInstanceAccount(instanceId);
+                    return !!(account && account.scheduleEnabled && (account.scheduleStartEnabled || account.scheduleStopEnabled));
                 };
 
                 const addScheduleInstance = () => {
@@ -5376,7 +5376,6 @@
                              if (rules.length > 0) {
                                 const rule = rules[0];
                                 scheduleFormType.value = rule.schedule_type === 'day_cycle' ? 'day_cycle' : 'hour_cycle';
-                                 scheduleFormDefaultId.value = rule.default_instance_id || '';
                                  scheduleFormEntries.value = (rule.entries || []).map(normalizeScheduleEntry);
                                  scheduleDomainPrefix.value = rule.domain_prefix || '';
                                  pendingScheduleInstanceId.value = '';
@@ -5411,7 +5410,6 @@
                         const rule = {
                             enabled: true, domain,
                             domain_prefix: scheduleDomainPrefix.value || '',
-                            default_instance_id: scheduleFormDefaultId.value || '',
                             schedule_type: scheduleFormType.value,
                              entries: entries.map(e => ({
                                  instance_id: e.instance_id,
@@ -5818,15 +5816,14 @@
                     triggerScheduleSwitch,
                     loadScheduleLogs,
                     scheduleFormType,
-                    scheduleFormDefaultId,
                     scheduleFormEntries,
                     pendingScheduleInstanceId,
                     scheduleDomainPrefix,
                     scheduleDnsStatus,
                     scheduleInstanceOptions,
                     scheduleAvailableInstanceOptions,
-                    scheduleDefaultInstanceOptions,
                     getScheduleInstanceLabel,
+                    hasScheduleConflict,
                     isScheduleInstanceEnabled,
                     addScheduleInstance,
                     removeScheduleInstance,
