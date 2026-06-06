@@ -45,6 +45,9 @@ class TelegramControlService
 
             if (!$response['ok']) {
                 $message = $response['description'] ?? '未知错误';
+                if (!empty($response['request_debug'])) {
+                    $message .= ' | 请求信息: ' . $response['request_debug'];
+                }
                 $this->db->addLog('error', 'Telegram 控制拉取消息失败: ' . $message);
                 return 0;
             }
@@ -708,15 +711,45 @@ class TelegramControlService
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        $requestDebug = $this->buildRequestDebug($method, $url, $payload, $proxyType, $httpCode);
+
         if ($error) {
-            return ['ok' => false, 'description' => '网络请求错误: ' . $error];
+            return ['ok' => false, 'description' => '网络请求错误: ' . $error, 'request_debug' => $requestDebug];
         }
 
         $decoded = json_decode((string) $raw, true);
         if (!is_array($decoded)) {
-            return ['ok' => false, 'description' => "接口返回异常 {$httpCode}: " . (string) $raw];
+            return ['ok' => false, 'description' => "接口返回异常 {$httpCode}: " . (string) $raw, 'request_debug' => $requestDebug];
+        }
+        if (empty($decoded['ok'])) {
+            $decoded['request_debug'] = $requestDebug;
         }
         return $decoded;
+    }
+
+    private function buildRequestDebug($method, $url, array $payload, $proxyType, $httpCode)
+    {
+        $safeUrl = preg_replace('/\/bot[^\/]+\//', '/bot***/', (string) $url);
+        $parts = [
+            'method=' . $method,
+            'url=' . $safeUrl,
+            'params=' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'proxy_type=' . ($proxyType ?: 'none'),
+            'http_code=' . (string) $httpCode
+        ];
+
+        if ($proxyType === 'custom') {
+            $parts[] = 'proxy_url=' . rtrim((string) ($this->settings['notify_tg_proxy_url'] ?? ''), '/');
+        } elseif ($proxyType === 'socks5') {
+            $proxyIp = trim((string) ($this->settings['notify_tg_proxy_ip'] ?? ''));
+            $proxyPort = trim((string) ($this->settings['notify_tg_proxy_port'] ?? ''));
+            $proxyUser = (string) ($this->settings['notify_tg_proxy_user'] ?? '');
+            $proxyPass = (string) ($this->settings['notify_tg_proxy_pass'] ?? '');
+            $parts[] = 'proxy=' . ($proxyIp !== '' || $proxyPort !== '' ? "{$proxyIp}:{$proxyPort}" : '未配置');
+            $parts[] = 'proxy_auth=' . ($proxyUser !== '' || $proxyPass !== '' ? 'yes' : 'no');
+        }
+
+        return implode('; ', $parts);
     }
 
     private function confirmTtl()
